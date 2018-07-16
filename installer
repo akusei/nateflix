@@ -1,0 +1,595 @@
+#!/bin/bash
+
+# TODO: HEADPHONES_MUSIC_DIR
+
+LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
+
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run as root"
+   exit 1
+fi
+
+get_var()
+{
+  source $2
+  echo ${!1}
+}
+
+version_compare()
+{
+    if [[ $1 == $2 ]]
+    then
+        return 0
+    fi
+    local IFS=.
+    local i ver1=($1) ver2=($2)
+    # fill empty fields in ver1 with zeros
+    for ((i=${#ver1[@]}; i<${#ver2[@]}; i++))
+    do
+        ver1[i]=0
+    done
+    for ((i=0; i<${#ver1[@]}; i++))
+    do
+        if [[ -z ${ver2[i]} ]]
+        then
+            # fill empty fields in ver2 with zeros
+            ver2[i]=0
+        fi
+        if ((10#${ver1[i]} > 10#${ver2[i]}))
+        then
+            return 1
+        fi
+        if ((10#${ver1[i]} < 10#${ver2[i]}))
+        then
+            return 2
+        fi
+    done
+    return 0
+}
+
+DISTRO=$(get_var ID /etc/os-release)
+VERSION=$(get_var VERSION_ID /etc/os-release)
+
+if [[ -z $DISTRO || $(uname -p) != "x86_64" ]]; then
+	echo "This distro/architecture is not supported"
+	exit 1
+fi
+
+if [[ "$DISTRO" == "debian" && $(version_compare $VERSION "7.6"; echo $?) != 1 ]]; then
+  echo "Requires Debian 7.7 or higher"
+  exit 1
+elif [[ "$DISTRO" == "ubuntu" && $(version_compare $VERSION "14.03"; echo $?) != 1 ]]; then
+  echo "Requires Ubuntu 14.04 or higher"
+  exit 1
+elif [[ "$DISTRO" == "centos" && $(version_compare $VERSION "6"; echo $?) != 1 ]]; then
+  echo "Requires CentOS 7 or higher"
+  exit 1
+elif [[ "$DISTRO" == "fedora" && $(version_compare $VERSION "25"; echo $?) != 1 ]]; then
+  echo "Requires Fedora 26 or higher"
+  exit 1
+fi
+
+WORKING_DIR=$(mktemp -d)
+
+cleanup()
+{
+  if [[ -d $1 ]]; then
+    rm -rf $1
+  fi
+}
+
+trap "cleanup $WORKING_DIR" EXIT
+
+check_if_running()
+{
+  local http_status='0'
+  local http_content=''
+  local retries=${4:-20}
+  local out=''
+
+  while [[ $http_status != "$2" || $http_content != *"$3"* ]]; do
+    out=$(curl -k --silent -L -w "\n%{http_code}" "$1")
+    http_status="${out##*$'\n'}"
+    http_content="${out%$'\n'*}"
+    retries=$(($retries-1))
+    if [[ $retries -lt 0 ]]; then
+      echo "Service did not properly start"
+      exit 1
+    fi
+    sleep 1
+  done
+
+  return 0
+}
+
+extract()
+{
+  local archive=$(awk '/^__ARCHIVE__/ {print NR + 1; exit 0; }' "${0}")
+  tail -n+${archive} "${0}" | tar xpJv -C $1 >> $LOG_FILE
+}
+
+get_value()
+{
+    read -ep "$1 [$2]? " value
+    if [[ ! -z "$value" ]]; then
+      echo $value
+    else
+      echo $2
+    fi
+}
+
+gather_required_config()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "* INITIAL CONFIGURATION  *"
+  echo "**************************"
+  echo
+
+  CONFIG_DIR=/nateflix
+  export CONFIG_DIR
+
+  read -ep "Plex username: " PLEX_USERNAME
+  read -esp "Plex password: " PLEX_PASSWORD
+  echo
+  export PLEX_USERNAME
+  export PLEX_PASSWORD
+  if [[ -z "${PLEX_USERNAME}" || -z "${PLEX_PASSWORD}" ]]; then
+    echo "Plex username and password required"
+    exit 1;
+  fi
+
+  local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
+          --header "X-Plex-Product: Nateflix Installation" \
+          --header "X-Plex-Version: V1" \
+          -d "user[login]=${PLEX_USERNAME}&user[password]=${PLEX_PASSWORD}" \
+          -X POST https://plex.tv/users/sign_in.json)
+  local re="^\{\"error\":\"(.+)\"\}$"
+  if [[ $result =~ $re ]]; then
+    echo "Login failed: ${BASH_REMATCH[1]}"
+    exit 1
+  fi
+  if [[ $result != *"{\"user\":"* ]]; then
+    echo "Login failed: Unexpected result"
+    exit 1
+  fi
+
+  PLEX_TOKEN=$(echo $result | grep -ioe '"authToken":"[^"]*' | cut -c 14-)
+  export PLEX_TOKEN
+  PLEX_CLAIM="not a real token"
+  export PLEX_CLAIM
+
+  echo
+
+  INSTALL_DIR="/opt/nateflix"
+  INSTALL_DIR=$(get_value "Where do you want to install Nateflix" $INSTALL_DIR)
+  if [[ -d $INSTALL_DIR ]]; then
+    read -ep "Directory already exists, overwrite [n]? " yn
+    case $yn in
+      [Yy]* )
+        rm -rf $INSTALL_DIR
+        ;;
+      *)
+        echo "Aborting installation"
+        exit 1
+        ;;
+    esac
+  fi
+  if [[ $(mkdir -p $INSTALL_DIR > /dev/null 2>&1; echo $?) == 0 ]]; then
+    rm -rf $INSTALL_DIR
+  else
+    echo "Could not create destination directory"
+    exit 1
+  fi
+  export INSTALL_DIR
+
+  DATA_DIR=/mnt/media
+  DATA_DIR=$(get_value "Root location of media library" $DATA_DIR)
+  export DATA_DIR
+
+  NZBGET_SOFTWARE_DIR=/mnt/media/software/incoming
+  NZBGET_SOFTWARE_DIR=$(get_value "Incoming software directory" $NZBGET_SOFTWARE_DIR)
+  export NZBGET_SOFTWARE_DIR
+
+  HEADPHONES_MUSIC_DIR=/mnt/media/music
+  DATA_DIR=$(get_value "Root location of music library" $HEADPHONES_MUSIC_DIR)
+  export HEADPHONES_MUSIC_DIR
+
+  echo
+
+  read -ep "Do you want NZBGet to use a password [n]? " yn
+  case $yn in
+    [Yy]* )
+      read -ep "NZBGet Username: " NZBGET_USERNAME
+      read -esp "NZBGet Password: " NZBGET_PASSWORD
+      echo
+      ;;
+  esac
+  export NZBGET_USERNAME
+  export NZBGET_PASSWORD
+
+  read -ep "Do you want Headphones to use a password [n]? " yn
+  case $yn in
+    [Yy]* )
+      read -ep "Headphones Username: " HEADPHONES_USERNAME
+      read -esp "Headphones Password: " HEADPHONES_PASSWORD
+      echo
+      ;;
+  esac
+  export HEADPHONES_USERNAME
+  export HEADPHONES_PASSWORD
+
+  TZ=$(date +%Z)
+  export TZ
+}
+
+install_docker()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   INSTALLING DOCKER    *"
+  echo "**************************"
+  echo
+
+  echo Installing Docker
+  if [[ "$DISTRO" == "debian" ]]; then
+    apt-get update -qq
+    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
+    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+    apt-get update -qq
+    apt-get install -qq -y docker-ce
+  elif [[ "$DISTRO" == "ubuntu " ]]; then
+    apt-get update -qq
+    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    apt-get update -qq
+    apt-get install -qq -y docker-ce
+  elif [[ "$DISTRO" == "centos" ]]; then
+    yum update
+    yum remove docker docker-client docker-client-latest docker-common docker-latest \
+               docker-latest-logrotate docker-logrotate docker-selinux \
+               docker-engine-selinux docker-engine
+    yum install -y yum-utils device-mapper-persistent-data lvm2 sqlite3
+    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    yum install docker-ce
+    systemctl start docker
+  elif [[ "$DISTRO" == "fedora" ]]; then
+    dnf update
+    dnf remove docker docker-client docker-client-latest docker-common docker-latest \
+               docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux \
+               docker-engine
+    dnf -y install dnf-plugins-core
+    dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+    dnf install docker-ce sqlite3
+    systemctl start docker
+  fi
+
+  echo Installing Docker-Compose
+  # Docker compose
+  if [[ -z "$(which docker-compose)" ]]; then
+    curl -L https://github.com/docker/compose/releases/download/1.21.0-rc1/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+  fi
+}
+
+install()
+{
+  gather_required_config
+  install_docker
+
+  echo
+  echo
+  echo "**************************"
+  echo "*  INSTALLING NATEFLIX   *"
+  echo "**************************"
+  echo
+
+  echo "Extracting files"
+  extract $WORKING_DIR
+
+  echo "Creating directories"
+  mkdir -p $INSTALL_DIR
+  mkdir -p $DATA_DIR
+
+  echo "Copying files"
+  cp -Rv $WORKING_DIR/. $INSTALL_DIR >> $LOG_FILE
+  touch $INSTALL_DIR/.env
+
+  cd $INSTALL_DIR
+  build_and_configure
+
+  echo "Setting TZ to ${TZ}" >> $LOG_FILE
+  echo TZ=$TZ >> $INSTALL_DIR/.env
+  echo "Setting CONFIG_DIR to ${CONFIG_DIR}" >> $LOG_FILE
+  echo CONFIG_DIR=$CONFIG_DIR >> $INSTALL_DIR/.env
+  echo "Setting DATA_DIR to ${DATA_DIR}" >> $LOG_FILE
+  echo DATA_DIR=$DATA_DIR >> $INSTALL_DIR/.env
+  echo "Setting PLEX_CLAIM to ${PLEX_CLAIM}" >> $LOG_FILE
+  echo PLEX_CLAIM=$PLEX_CLAIM >> $INSTALL_DIR/.env
+
+  echo
+  echo
+  echo "Installation complete"
+  echo
+  echo
+
+  docker-compose start
+}
+
+configure_headphones()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "* CONFIGURING HEADPHONES *"
+  echo "**************************"
+  echo
+
+  local configFile=$CONFIG_DIR/headphones/config.ini
+
+  docker-compose up -d headphones
+  check_if_running 'http://localhost:8080/home' 200 'Headphones'
+  docker-compose stop headphones
+
+  #Headphones config
+  sed -ie "s/^\(http_username\).\+$/\1 = ${HEADPHONES_USERNAME}/g" $configFile
+  sed -ie "s/^\(http_password\).\+$/\1 = ${HEADPHONES_PASSWORD}/g" $configFile
+  sed -ie "s/^\(http_root\).\+$/\1 = \/headphones/g" $configFile
+  sed -ie "s/^\(nzb_downloader\).\+$/\1 = 1/g" $configFile
+
+  #Plex config
+  sed -ie "s/^\(plex_enabled\).\+$/\1 = 1/g" $configFile
+  sed -ie "s/^\(plex_notify\).\+$/\1 = 1/g" $configFile
+  sed -ie "s/^\(plex_update\).\+$/\1 = 1/g" $configFile
+  sed -ie "s/^\(plex_username\).\+$/\1 = ${PLEX_USERNAME}/g" $configFile
+  sed -ie "s/^\(plex_password\).\+$/\1 = ${PLEX_PASSWORD}/g" $configFile
+  sed -ie "s/^\(plex_server_host\).\+$/\1 = http:\/\/plex:32400/g" $configFile
+
+  #NZBGet config
+  sed -ie "s/^\(nzbget_host\).\+$/\1 = http:\/\/nzbget:6789/g" $configFile
+  sed -ie "s/^\(nzbget_username\).\+$/\1 = ${NZBGET_USERNAME}/g" $configFile
+  sed -ie "s/^\(nzbget_password\).\+$/\1 = ${NZBGET_PASSWORD}/g" $configFile
+  sed -ie "s/^\(nzbget_category\).\+$/\1 = Music/g" $configFile
+}
+
+configure_plex()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*    CONFIGURING PLEX    *"
+  echo "**************************"
+  echo
+
+  echo "Getting Plex claim token"
+  local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
+          --header "X-Plex-Product: Nateflix Installation" \
+          --header "X-Plex-Token: ${PLEX_TOKEN}" \
+          -X GET https://plex.tv/api/claim/token.json)
+
+  PLEX_CLAIM=$(echo $result | grep -ioe '"token":"[^"]*' | cut -c 10-)
+  export PLEX_CLAIM
+  if [[ -z $PLEX_CLAIM ]]; then
+    echo "Error retrieving Plex Claim Token"
+    exit 1;
+  fi
+
+  docker-compose up -d plex
+  check_if_running 'http://localhost:32400' 401 "web/index" 500
+  docker-compose stop plex
+}
+
+configure_nzbget()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   CONFIGURING NZBGET   *"
+  echo "**************************"
+  echo
+
+  local configFile=$CONFIG_DIR/nzbget/config/nzbget.conf
+
+  docker-compose up -d nzbget
+  check_if_running 'http://localhost:6789' 401
+  docker-compose stop nzbget
+
+  #nzbget config
+  sed -ie "s/^\(ControlUsername\).\+$/\1=${NZBGET_USERNAME}/g" $configFile
+  sed -ie "s/^\(ControlPassword\).\+$/\1=${NZBGET_PASSWORD}/g" $configFile
+}
+
+configure_ombi()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*    CONFIGURING OMBI    *"
+  echo "**************************"
+  echo
+
+  docker-compose up -d ombi
+  check_if_running 'http://localhost:5000' 200 'Ombi'
+
+#   local apiKey=$(grep -aioe '"ApiKey":"[^"]*' ${CONFIG_DIR}/ombi/Ombi.db | cut -c 11-)
+#
+#   local data=$(cat <<- EOD
+# {"baseUrl": "/",
+#  "collectAnalyticData": false,
+#  "wizard": false,
+#  "apiKey": "${apiKey}",
+#  "ignoreCertificateErrors": true,
+#  "doNotSendNotificationsForAutoApprove": true
+#  "hideRequestsUsers": true,
+#  "id": 0}
+# EOD
+# )
+#
+#   curl -Lv -H 'Content-Type: application/json' -H "ApiKey: ${apiKey}" -d "${data}" http://localhost:5000/api/v1/Settings/ombi
+
+  docker-compose stop ombi
+}
+
+configure_sonarr()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   CONFIGURING SONARR   *"
+  echo "**************************"
+  echo
+
+  docker-compose up -d sonarr
+  check_if_running 'http://localhost:8989' 200 'Sonarr'
+  docker-compose stop sonarr
+
+  local dbFile=$CONFIG_DIR/sonarr/nzbdrone.db
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
+  sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
+  sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
+  sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/sonarr/config.xml
+  sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/sonarr/config.xml
+}
+
+configure_radarr()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   CONFIGURING RADARR   *"
+  echo "**************************"
+  echo
+
+  docker-compose up -d radarr
+  check_if_running 'http://localhost:7878' 200 'Radarr'
+  docker-compose stop radarr
+
+  local dbFile=$CONFIG_DIR/radarr/nzbdrone.db
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
+  sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,ReplaceIllegalCharacters,StandardMovieFormat,MovieFolderFormat,ColonReplacementFormat) values (0,1,1,'{Movie Title} {Release Year} {Quality Title}','{Movie Title} ({Release Year})',1)"
+  sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/radarr<\/UrlBase>/" $CONFIG_DIR/radarr/config.xml
+  sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/radarr/config.xml
+  sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/radarr/config.xml
+}
+
+configure_plexstats()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "* CONFIGURING PLEX STATS *"
+  echo "**************************"
+  echo
+
+  docker-compose up -d plexstats >> $LOG_FILE
+  check_if_running 'http://localhost:8181' 200 'Tautulli - Welcome' 500
+  docker-compose stop plexstats
+
+  # local configFile=$CONFIG_DIR/plexstats/config.ini
+  # sed -ie "s/^\(pms_url\).\+$/\1 = http:\/\/plex:32400/g" $configFile
+  # sed -ie "s/^\(pms_name\).\+$/\1 = Nateflix/g" $configFile
+  # sed -ie "s/^\(pms_plexpass\).\+$/\1 = 1/g" $configFile
+  # sed -ie "s/^\(pms_port\).\+$/\1 = 32400/g" $configFile
+  # sed -ie "s/^\(pms_platform\).\+$/\1 = Linux/g" $configFile
+
+  # pms_uuid = ead9a1d35c9548e083ff32446d706b7a
+  # pms_logs_folder = ""
+  # pms_token = oWBhYj6tLBib2TMHMdvD
+  # pms_identifier = c13e822787b74f572f2dd8bbec742d524e4a6c24
+  # pms_version = 1.13.3.5223-cd1e0da1b
+  # pms_ip = 23.242.1.150
+
+  # pms_use_bif = 0
+  # pms_uuid = 59cde56c75ff4402b65b0c3c8d606e42
+  # pms_url_manual = 0
+  # pms_web_url = https://app.plex.tv/desktop
+  # pms_url = ""
+  # pms_update_channel = plex
+  # pms_update_distro = ""
+  # pms_name = ""
+  # pms_logs_folder = ""
+  # pms_plexpass = 0
+  # pms_token = ""
+  # pms_url_override = ""
+  # pms_port = 32400
+  # pms_is_remote = 0
+  # pms_identifier = ""
+  # pms_ssl = 0
+  # pms_version = ""
+  # pms_update_distro_build = ""
+  # pms_ip = 127.0.0.1
+  # pms_logs_line_cap = 1000
+  # pms_platform = ""
+  # pms_is_cloud = 0
+}
+
+configure_deluge()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   CONFIGURING DELUGE   *"
+  echo "**************************"
+  echo
+
+  docker-compose up -d deluge
+  check_if_running 'http://localhost:8112' 200 'Deluge'
+  docker-compose stop deluge
+}
+
+build_and_configure()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*    BUILDING IMAGES     *"
+  echo "**************************"
+  echo
+
+  docker-compose build --no-cache >> $LOG_FILE
+  if [[ "$?" -gt 0 ]]; then
+    echo "Error building images check log file ${LOG_FILE} for details"
+    exit $?
+  fi
+
+  configure_plex
+  configure_nzbget
+  configure_headphones
+  configure_ombi
+  configure_sonarr
+  configure_radarr
+  configure_plexstats
+  configure_deluge
+}
+
+install
+# gather_required_config
+# build_and_configure
+
+echo
+echo "You may need to perform some extra setup steps in each application"
+echo
+echo "NZBGet:     http://localhost:6789"
+echo "Plex:       http://localhost:32400/web/"
+echo "Plex Stats: http://localhost:8181"
+echo "Headphones: http://localhost:8080"
+echo "Sonarr:     http://localhost:8989"
+echo "Radarr:     http://localhost:7878"
+echo "OMBI:       http://localhost:5000"
+echo "Portal:     http://localhost"
+echo
+echo
+
+exit $?
+
+__ARCHIVE__

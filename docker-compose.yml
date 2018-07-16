@@ -1,0 +1,172 @@
+version: '3.6'
+
+services:
+  # proxy:
+  #   container_name: proxy
+  #   image: nginx:1.13.12-alpine
+  #   restart: always
+  #   environment:
+  #     - TZ=${TZ}
+  #   ports:
+  #     - ${PORTAL_PORT}:80/tcp
+  #   volumes:
+  #     - ./proxy/portal.conf:/etc/nginx/conf.d/default.conf:ro
+  #
+  # portal:
+  #   depends_on:
+  #     - proxy
+  #   container_name: portal
+  #   image: portal
+  #   build: portal
+  #   restart: always
+  #   environment:
+  #     - TZ=${TZ}
+  #   ports:
+  #     - 8000:8000/tcp
+  #   volumes:
+  #     - ./portal/src:/opt/portal
+
+  nzbget:
+    container_name: nzbget
+    image: nzbget
+    build: ./nzbget
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 6789:6789/tcp
+    volumes:
+      - ${CONFIG_DIR}/nzbget:/data
+      - ${DATA_DIR}:/media
+      - ${NZBGET_SOFTWARE_DIR}:/software
+    env_file:
+      - .env
+
+  plex:
+    container_name: plex
+    image: plexinc/pms-docker:plexpass
+    restart: always
+    environment:
+      # might need to comment this out
+      # - ADVERTISE_IP="http://localhost:32400/"
+      - PLEX_UPDATE_CHANNEL=8
+      - PLEX_CLAIM=${PLEX_CLAIM}
+      - TZ=${TZ}
+    network_mode: host
+    ports:
+      - 32400:32400/tcp
+      - 3005:3005/tcp
+      - 8324:8324/tcp
+      - 32469:32469/tcp
+      - 1900:1900/udp
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+    volumes:
+      - ${CONFIG_DIR}/plex/config:/config
+      - ${CONFIG_DIR}/plex/transcode:/transcode
+      - ${CONFIG_DIR}/plex/media:/data
+    env_file:
+      - .env
+
+  plexstats:
+    container_name: plexstats
+    image: tautulli/tautulli
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 8181:8181/tcp
+    volumes:
+      - ${CONFIG_DIR}/plexstats:/config
+      - ${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Logs:/logs:ro
+    env_file:
+      - .env
+
+  ombi:
+    container_name: ombi
+    image: ombi
+    # depends_on:
+    #   - nzbget
+    build: ombi
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 5000:5000/tcp
+    volumes:
+      - ${CONFIG_DIR}/ombi:/data
+    env_file:
+      - .env
+
+  sonarr:
+    container_name: sonarr
+    image: sonarr
+    # depends_on:
+    #   - nzbget
+    build: ./sonarr
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 8989:8989/tcp
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONFIG_DIR}/sonarr:/data
+      - ${DATA_DIR}:/media
+    env_file:
+      - .env
+
+  radarr:
+    container_name: radarr
+    image: radarr
+    # depends_on:
+    #   - nzbget
+    build: ./radarr
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 7878:7878/tcp
+    volumes:
+      - ${CONFIG_DIR}/radarr:/data
+      - ${DATA_DIR}:/media
+    env_file:
+      - .env
+
+  headphones:
+    container_name: headphones
+    image: headphones
+    # depends_on:
+    #   - nzbget
+    build: ./headphones
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 8080:8181/tcp
+    volumes:
+       - ${CONFIG_DIR}/nzbget/downloads/completed/Music:/downloads
+       - ${CONFIG_DIR}/headphones:/data
+       - ${HEADPHONES_MUSIC_DIR}:/media
+    env_file:
+      - .env
+
+  deluge:
+    container_name: deluge
+    image: deluge
+    # depends_on:
+    #   - nzbget
+    build: deluge
+    restart: always
+    environment:
+      - TZ=${TZ}
+    ports:
+      - 58846:58846/tcp
+      - 8112:8112/tcp
+    volumes:
+      - ${CONFIG_DIR}/deluge:/data
+      - ${CONFIG_DIR}/deluge-web:/data-web
+    env_file:
+      - .env
