@@ -1,25 +1,38 @@
-FROM ubuntu:bionic
+FROM python:3.7.0-alpine3.8
 
+# ADD REPO AND UPDATE
+RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
+		apk update
 
-RUN apt-get update && \
-		apt-get install -y software-properties-common && \
-		apt-key adv --fetch-keys "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xC5E6A5ED249AD24C" && \
-		add-apt-repository -y ppa:deluge-team/ppa && \
-		apt-get update && \
-		apt-get install -y python && \
-		apt-get install -y deluged deluge-web supervisor && \
-		mkdir /data && \
-		mkdir /data-web && \
-		apt-get clean && \
-		rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
+# INSTALL DELUGE
+RUN apk add py-pip deluge@testing && \
+		pip install --upgrade pip && \
+		pip install --upgrade setuptools && \
+		pip2 install incremental constantly packaging automat service_identity
 
+# INSTALL SUPERVISOR
+RUN apk add supervisor
 COPY etc/ /etc/
 
+# INSTALL OPENVPN
+RUN apk add openvpn ip6tables ufw@testing && \
+		cd /etc/openvpn && \
+		wget -O openvpn.zip "https://www.privateinternetaccess.com/openvpn/openvpn-ip.zip" && \
+		unzip openvpn.zip && \
+		rm -rf ./openvpn.zip && \
+		sed -i -e 's/^IPV6=yes$/IPV6=no/g' /etc/default/ufw
+
+# CLEANUP
+RUN rm -rf /tmp/* /var/tmp/* /var/cache/apk/* /var/cache/distfiles/*
+
+COPY entrypoint.sh /usr/local/bin/entrypoint
+RUN chmod a+x /usr/local/bin/entrypoint
 
 EXPOSE 58846/tcp
 EXPOSE 8112/tcp
 
-VOLUME /data /data-web
+VOLUME /data /data-web /openvpn
 
+ENTRYPOINT ["entrypoint"]
 
-ENTRYPOINT ["supervisord"]
+CMD ["supervisord"]

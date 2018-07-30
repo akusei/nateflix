@@ -36,6 +36,7 @@ services:
     ports:
       - 6789:6789/tcp
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget:/data
       - ${DATA_DIR}:/media
       - ${NZBGET_SOFTWARE_DIR}:/software
@@ -64,6 +65,7 @@ services:
       - 32413:32413/udp
       - 32414:32414/udp
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plex/config:/config
       - ${CONFIG_DIR}/plex/transcode:/transcode
       - ${CONFIG_DIR}/plex/media:/data
@@ -79,6 +81,7 @@ services:
     ports:
       - 8181:8181/tcp
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plexstats:/config
       - ${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Logs:/logs:ro
     env_file:
@@ -96,6 +99,7 @@ services:
     ports:
       - 5000:5000/tcp
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/ombi:/data
     env_file:
       - .env
@@ -130,6 +134,7 @@ services:
     ports:
       - 7878:7878/tcp
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/radarr:/data
       - ${DATA_DIR}:/media
     env_file:
@@ -147,9 +152,10 @@ services:
     ports:
       - 8080:8181/tcp
     volumes:
-       - ${CONFIG_DIR}/nzbget/downloads/completed/Music:/downloads
-       - ${CONFIG_DIR}/headphones:/data
-       - ${HEADPHONES_MUSIC_DIR}:/media
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONFIG_DIR}/nzbget/downloads/completed/Music:/downloads
+      - ${CONFIG_DIR}/headphones:/data
+      - ${HEADPHONES_MUSIC_DIR}:/media
     env_file:
       - .env
 
@@ -161,12 +167,22 @@ services:
     build: deluge
     restart: always
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
+      VPN_REGION: US West
     ports:
       - 58846:58846/tcp
       - 8112:8112/tcp
+    dns:
+      - 209.222.18.222
+      - 209.222.18.218
+    cap_add:
+      - NET_ADMIN
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/deluge:/data
       - ${CONFIG_DIR}/deluge-web:/data-web
+      - ${CONFIG_DIR}/openvpn:/openvpn
     env_file:
       - .env
+
+# curl ipinfo.io/ip
