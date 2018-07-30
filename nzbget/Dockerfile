@@ -1,4 +1,4 @@
-FROM alpine:3.7
+FROM alpine:3.8
 
 RUN mkdir -p /opt/nzbget && \
 		wget --no-check-certificate -q -O /tmp/version.json http://nzbget.net/info/nzbget-version-linux.json && \
