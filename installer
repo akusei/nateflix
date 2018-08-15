@@ -160,6 +160,16 @@ gather_required_config()
   PLEX_CLAIM="not a real token"
   export PLEX_CLAIM
 
+  read -ep "VPN Username: " VPN_USERNAME
+  read -esp "VPN Password: " VPN_PASSWORD
+  echo
+  export VPN_USERNAME
+  export VPN_PASSWORD
+  if [[ -z "${VPN_USERNAME}" || -z "${VPN_PASSWORD}" ]]; then
+    echo "VPN username and password are required"
+    exit 1;
+  fi
+
   echo
 
   INSTALL_DIR="/opt/nateflix"
@@ -208,6 +218,26 @@ gather_required_config()
   esac
   export NZBGET_USERNAME
   export NZBGET_PASSWORD
+
+  read -ep "Do you want Deluge to use a password [n]? " yn
+  case $yn in
+    [Yy]* )
+      read -ep "Deluge Username: " DELUGE_USERNAME
+      read -esp "Deluge Password: " DELUGE_PASSWORD
+      echo
+      ;;
+  esac
+  export DELUGE_USERNAME
+  export DELUGE_PASSWORD
+
+  read -ep "Do you want Deluge Web Interface to use a password [n]? " yn
+  case $yn in
+    [Yy]* )
+      read -esp "Deluge Web Password: " DELUGEWEB_PASSWORD
+      echo
+      ;;
+  esac
+  export DELUGEWEB_PASSWORD
 
   read -ep "Do you want Headphones to use a password [n]? " yn
   case $yn in
@@ -336,24 +366,24 @@ configure_headphones()
   docker-compose stop headphones
 
   #Headphones config
-  sed -ie "s/^\(http_username\).\+$/\1 = ${HEADPHONES_USERNAME}/g" $configFile
-  sed -ie "s/^\(http_password\).\+$/\1 = ${HEADPHONES_PASSWORD}/g" $configFile
-  sed -ie "s/^\(http_root\).\+$/\1 = \/headphones/g" $configFile
-  sed -ie "s/^\(nzb_downloader\).\+$/\1 = 1/g" $configFile
+  sed -i -e "s/^\(http_username\).\+$/\1 = ${HEADPHONES_USERNAME}/g" $configFile
+  sed -i -e "s/^\(http_password\).\+$/\1 = ${HEADPHONES_PASSWORD}/g" $configFile
+  sed -i -e "s/^\(http_root\).\+$/\1 = \/headphones/g" $configFile
+  sed -i -e "s/^\(nzb_downloader\).\+$/\1 = 1/g" $configFile
 
   #Plex config
-  sed -ie "s/^\(plex_enabled\).\+$/\1 = 1/g" $configFile
-  sed -ie "s/^\(plex_notify\).\+$/\1 = 1/g" $configFile
-  sed -ie "s/^\(plex_update\).\+$/\1 = 1/g" $configFile
-  sed -ie "s/^\(plex_username\).\+$/\1 = ${PLEX_USERNAME}/g" $configFile
-  sed -ie "s/^\(plex_password\).\+$/\1 = ${PLEX_PASSWORD}/g" $configFile
-  sed -ie "s/^\(plex_server_host\).\+$/\1 = http:\/\/plex:32400/g" $configFile
+  sed -i -e "s/^\(plex_enabled\).\+$/\1 = 1/g" $configFile
+  sed -i -e "s/^\(plex_notify\).\+$/\1 = 1/g" $configFile
+  sed -i -e "s/^\(plex_update\).\+$/\1 = 1/g" $configFile
+  sed -i -e "s/^\(plex_username\).\+$/\1 = ${PLEX_USERNAME}/g" $configFile
+  sed -i -e "s/^\(plex_password\).\+$/\1 = ${PLEX_PASSWORD}/g" $configFile
+  sed -i -e "s/^\(plex_server_host\).\+$/\1 = http:\/\/plex:32400/g" $configFile
 
   #NZBGet config
-  sed -ie "s/^\(nzbget_host\).\+$/\1 = http:\/\/nzbget:6789/g" $configFile
-  sed -ie "s/^\(nzbget_username\).\+$/\1 = ${NZBGET_USERNAME}/g" $configFile
-  sed -ie "s/^\(nzbget_password\).\+$/\1 = ${NZBGET_PASSWORD}/g" $configFile
-  sed -ie "s/^\(nzbget_category\).\+$/\1 = Music/g" $configFile
+  sed -i -e "s/^\(nzbget_host\).\+$/\1 = http:\/\/nzbget:6789/g" $configFile
+  sed -i -e "s/^\(nzbget_username\).\+$/\1 = ${NZBGET_USERNAME}/g" $configFile
+  sed -i -e "s/^\(nzbget_password\).\+$/\1 = ${NZBGET_PASSWORD}/g" $configFile
+  sed -i -e "s/^\(nzbget_category\).\+$/\1 = Music/g" $configFile
 }
 
 configure_plex()
@@ -399,8 +429,8 @@ configure_nzbget()
   docker-compose stop nzbget
 
   #nzbget config
-  sed -ie "s/^\(ControlUsername\).\+$/\1=${NZBGET_USERNAME}/g" $configFile
-  sed -ie "s/^\(ControlPassword\).\+$/\1=${NZBGET_PASSWORD}/g" $configFile
+  sed -i -e "s/^\(ControlUsername\).\+$/\1=${NZBGET_USERNAME}/g" $configFile
+  sed -i -e "s/^\(ControlPassword\).\+$/\1=${NZBGET_PASSWORD}/g" $configFile
 }
 
 configure_ombi()
@@ -451,6 +481,7 @@ configure_sonarr()
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
   sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
@@ -475,6 +506,7 @@ configure_radarr()
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"radarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,ReplaceIllegalCharacters,StandardMovieFormat,MovieFolderFormat,ColonReplacementFormat) values (0,1,1,'{Movie Title} {Release Year} {Quality Title}','{Movie Title} ({Release Year})',1)"
   sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/radarr<\/UrlBase>/" $CONFIG_DIR/radarr/config.xml
@@ -544,7 +576,26 @@ configure_deluge()
 
   docker-compose up -d deluge
   check_if_running 'http://localhost:8112' 200 'Deluge'
+  while [[ ! -f ${CONFIG_DIR}/deluge/auth ]]; do
+    sleep 1s
+  done
   docker-compose stop deluge
+
+  echo ${VPN_USERNAME} > ${CONFIG_DIR}/openvpn/auth.txt
+  echo ${VPN_PASSWORD} >> ${CONFIG_DIR}/openvpn/auth.txt
+
+  echo "${DELUGE_USERNAME}:${DELUGE_PASSWORD}:10" > ${CONFIG_DIR}/deluge/auth
+
+  local salt=$(head -c 20 /dev/random | sha1sum | cut -d ' ' -f 1)
+  local passHash=$(echo -n "${salt}${DELUGEWEB_PASSWORD}" | sha1sum | cut -d ' ' -f 1)
+
+  # web.conf
+  # "base": "/",
+
+  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${passHash}\\2/g" ${CONFIG_DIR}/deluge/core.conf
+
+  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${passHash}\\2/g" ${CONFIG_DIR}/deluge-web/web.conf
+  sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${salt}\\2/g" ${CONFIG_DIR}/deluge-web/web.conf
 }
 
 build_and_configure()

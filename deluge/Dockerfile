@@ -8,11 +8,13 @@ RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/re
 RUN apk add py-pip deluge@testing && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
-		pip2 install incremental constantly packaging automat service_identity
+		pip2 install incremental constantly packaging automat service_identity && \
+		mkdir /default
 
 # INSTALL SUPERVISOR
 RUN apk add supervisor
 COPY etc/ /etc/
+COPY config/ /default/
 
 # INSTALL OPENVPN
 RUN apk add openvpn ip6tables ufw@testing && \

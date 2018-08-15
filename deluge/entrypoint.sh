@@ -15,6 +15,14 @@ if [ ! -c /dev/net/tun ]; then
   mknod /dev/net/tun c 10 200
 fi
 
+if [ ! -f /data/core.conf ]; then
+  cp /default/core.conf /data/core.conf
+fi;
+
+if [ ! -f /data/label.conf ]; then
+  cp /default/label.conf /data/label.conf
+fi;
+
 host=$(grep 'remote .\+ \d\+' /openvpn/server.ovpn | cut -d ' ' -f 2)
 port=$(grep 'remote .\+ \d\+' /openvpn/server.ovpn | cut -d ' ' -f 3)
 
