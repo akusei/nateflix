@@ -1,4 +1,4 @@
-FROM mono:5.12.0.226
+FROM mono:latest
 
 
 RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys FDA5DFFC && \

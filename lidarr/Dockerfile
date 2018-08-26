@@ -1,17 +1,27 @@
 FROM mono:latest
 
-RUN curl -o /opt/lidarr.tgz -L "https://github.com/lidarr/Lidarr/releases/download/v0.3.1.471/Lidarr.develop.0.3.1.471.linux.tar.gz" && \
-		mkdir /data && \
+
+ENV DOWNLOAD_URL=https://github.com/lidarr/Lidarr/releases/download
+ENV DISTRO=linux
+ENV BRANCH=develop
+ENV RELEASE=0.3.1.471
+
+
+RUN curl -o /opt/lidarr.tgz -L "${DOWNLOAD_URL}/v${RELEASE}/Lidarr.${BRANCH}.${RELEASE}.${DISTRO}.tar.gz" && \
+		mkdir /config && \
+		mkdir /myfilesystem && \
+		mkdir /downloads && \
 		tar -zxvf /opt/lidarr.tgz -C /opt
 
 RUN rm -rf /opt/lidarr.tgz && \
 		rm -rf /var/lib/apt/lists/*
 
+
 EXPOSE 8686/tcp
+VOLUME /config /myfilesystem /downloads
 
-VOLUME /data
 
-CMD ["/usr/bin/mono", "/opt/Lidarr/Lidarr.exe", "/nobrowser", "/data=/data"]
+ENTRYPOINT ["/usr/bin/mono", "/opt/Lidarr/Lidarr.exe", "/nobrowser", "/data=/config"]
 
 # FROM python:2.7.15-alpine3.8
 #

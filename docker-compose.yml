@@ -1,7 +1,5 @@
 version: '3.7'
 
-# need to look at medusa for tv
-
 services:
   portal:
     labels:
@@ -28,11 +26,11 @@ services:
       - TZ=${TZ}
     ports:
       - 6789:6789/tcp
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/nzbget:/data
-      - ${DATA_DIR}:/media
-      - ${NZBGET_SOFTWARE_DIR}:/software
+    # volumes:
+    #   - /etc/localtime:/etc/localtime:ro
+    #   - ${CONFIG_DIR}/nzbget:/data
+    #   - ${DATA_DIR}:/media
+    #   - ${NZBGET_SOFTWARE_DIR}:/software
     env_file:
       - .env
 
@@ -49,7 +47,7 @@ services:
       - PLEX_UPDATE_CHANNEL=8
       - PLEX_CLAIM=${PLEX_CLAIM}
       - TZ=${TZ}
-    network_mode: host
+    #network_mode: host
     ports:
       - 32400:32400/tcp
       - 3005:3005/tcp
@@ -125,6 +123,7 @@ services:
       - "traefik.frontend.rule=Host:radarr.${DOMAIN}"
     container_name: radarr
     restart: unless-stopped
+    stop_signal: SIGQUIT
     image: radarr
     build: ./radarr
     environment:
@@ -143,8 +142,9 @@ services:
       - "traefik.frontend.rule=Host:lidarr.${DOMAIN}"
     container_name: lidarr
     restart: unless-stopped
+    stop_signal: SIGQUIT
     image: lidarr
-    build: ./lidarr
+    build: lidarr
     environment:
       - TZ=${TZ}
     ports:
@@ -152,8 +152,8 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget/downloads/completed/Music:/downloads
-      - ${CONFIG_DIR}/lidarr:/data
-      - ${HEADPHONES_MUSIC_DIR}:/media
+      - ${CONFIG_DIR}/lidarr:/config
+      - /:/myfilesystem
     env_file:
       - .env
 

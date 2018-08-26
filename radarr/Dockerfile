@@ -1,4 +1,4 @@
-FROM mono:5.12.0.226
+FROM mono:latest
 
 
 RUN apt-get update && \

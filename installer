@@ -370,17 +370,21 @@ configure_lidarr()
   check_if_running 'http://localhost:8686' 200 'Lidarr' 30
   docker-compose stop lidarr
 
-  # local dbFile=$CONFIG_DIR/sonarr/nzbdrone.db
-  # sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
-  # sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
+  local dbFile=$CONFIG_DIR/lidarr/lidarr.db
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('autounmonitorpreviouslydownloadedtracks', 'True')"
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('copyusinghardlinks', 'False')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"${NZBGET_USERNAME}\",\"password\":\"${NZBGET_PASSWORD}\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
   # sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
   # sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   # sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   # sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
-  # # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
-  # sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/sonarr/config.xml
-  # sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/sonarr/config.xml
+  # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
+  sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/lidarr/config.xml
+  sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/lidarr/config.xml
 }
+
+"1"	"1"	"1"	"{Artist Name} - {Album Title} - {track:00} - {Track Title}"	"1"	"{Artist Name} - {Album Title} - {track:00} - {Track Title}"	"{Album Title} ({Release Year})"
 
 # configure_headphones()
 # {

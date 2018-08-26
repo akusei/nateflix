@@ -1,5 +1,5 @@
-FROM microsoft/dotnet:2.1.2-aspnetcore-runtime
-
+#FROM microsoft/dotnet:2.1.2-aspnetcore-runtime
+FROM microsoft/dornet:2.1.3-aspnetcore-runtime-alpine3.7
 
 RUN apt-get update -qq && \
 	apt-get install -qq -y gnupg wget && \
