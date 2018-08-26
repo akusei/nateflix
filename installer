@@ -87,7 +87,8 @@ check_if_running()
   local retries=${4:-20}
   local out=''
 
-  while [[ $http_status != "$2" || $http_content != *"$3"* ]]; do
+  # while [[ $http_status != "$2" || $http_content != *"$3"* ]]; do
+  while [[ $http_status != "$2" || ! "${http_content}" =~ "${3}" ]]; do
     out=$(curl -k --silent -L -w "\n%{http_code}" "$1")
     http_status="${out##*$'\n'}"
     http_content="${out%$'\n'*}"
@@ -159,6 +160,10 @@ gather_required_config()
   export PLEX_TOKEN
   PLEX_CLAIM="not a real token"
   export PLEX_CLAIM
+
+  DOMAIN=nateflix.io
+  DOMAIN=$(get_value "Nateflix domain name" $DOMAIN)
+  export DOMAIN
 
   read -ep "VPN Username: " VPN_USERNAME
   read -esp "VPN Password: " VPN_PASSWORD
@@ -340,6 +345,8 @@ install()
   echo DATA_DIR=$DATA_DIR >> $INSTALL_DIR/.env
   echo "Setting PLEX_CLAIM to ${PLEX_CLAIM}" >> $LOG_FILE
   echo PLEX_CLAIM=$PLEX_CLAIM >> $INSTALL_DIR/.env
+  echo "Setting DOMAIN to ${DOMAIN}" >> $LOG_FILE
+  echo DOMAIN=$DOMAIN >> $INSTALL_DIR/.env
 
   echo
   echo
@@ -347,44 +354,69 @@ install()
   echo
   echo
 
-  docker-compose start
+  docker-compose up -d
 }
 
-configure_headphones()
+configure_lidarr()
 {
   echo
   echo
   echo "**************************"
-  echo "* CONFIGURING HEADPHONES *"
+  echo "*   CONFIGURING LIDARR   *"
   echo "**************************"
   echo
 
-  local configFile=$CONFIG_DIR/headphones/config.ini
+  docker-compose up -d lidarr
+  check_if_running 'http://localhost:8686' 200 'Lidarr' 30
+  docker-compose stop lidarr
 
-  docker-compose up -d headphones
-  check_if_running 'http://localhost:8080/home' 200 'Headphones'
-  docker-compose stop headphones
-
-  #Headphones config
-  sed -i -e "s/^\(http_username\).\+$/\1 = ${HEADPHONES_USERNAME}/g" $configFile
-  sed -i -e "s/^\(http_password\).\+$/\1 = ${HEADPHONES_PASSWORD}/g" $configFile
-  sed -i -e "s/^\(http_root\).\+$/\1 = \/headphones/g" $configFile
-  sed -i -e "s/^\(nzb_downloader\).\+$/\1 = 1/g" $configFile
-
-  #Plex config
-  sed -i -e "s/^\(plex_enabled\).\+$/\1 = 1/g" $configFile
-  sed -i -e "s/^\(plex_notify\).\+$/\1 = 1/g" $configFile
-  sed -i -e "s/^\(plex_update\).\+$/\1 = 1/g" $configFile
-  sed -i -e "s/^\(plex_username\).\+$/\1 = ${PLEX_USERNAME}/g" $configFile
-  sed -i -e "s/^\(plex_password\).\+$/\1 = ${PLEX_PASSWORD}/g" $configFile
-  sed -i -e "s/^\(plex_server_host\).\+$/\1 = http:\/\/plex:32400/g" $configFile
-
-  #NZBGet config
-  sed -i -e "s/^\(nzbget_host\).\+$/\1 = http:\/\/nzbget:6789/g" $configFile
-  sed -i -e "s/^\(nzbget_username\).\+$/\1 = ${NZBGET_USERNAME}/g" $configFile
-  sed -i -e "s/^\(nzbget_password\).\+$/\1 = ${NZBGET_PASSWORD}/g" $configFile
-  sed -i -e "s/^\(nzbget_category\).\+$/\1 = Music/g" $configFile
+  # local dbFile=$CONFIG_DIR/sonarr/nzbdrone.db
+  # sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
+  # sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
+  # sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  # sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
+  # sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
+  # sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
+  # # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
+  # sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/sonarr/config.xml
+  # sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/sonarr/config.xml
 }
+
+# configure_headphones()
+# {
+#   echo
+#   echo
+#   echo "**************************"
+#   echo "* CONFIGURING HEADPHONES *"
+#   echo "**************************"
+#   echo
+#
+#   local configFile=$CONFIG_DIR/headphones/config.ini
+#
+#   docker-compose up -d headphones
+#   check_if_running 'http://localhost:8080/home' 200 'Headphones'
+#   docker-compose stop headphones
+#
+#   #Headphones config
+#   sed -i -e "s/^\(http_username\).\+$/\1 = ${HEADPHONES_USERNAME}/g" $configFile
+#   sed -i -e "s/^\(http_password\).\+$/\1 = ${HEADPHONES_PASSWORD}/g" $configFile
+#   # sed -i -e "s/^\(http_root\).\+$/\1 = \/headphones/g" $configFile
+#   sed -i -e "s/^\(nzb_downloader\).\+$/\1 = 1/g" $configFile
+#
+#   #Plex config
+#   sed -i -e "s/^\(plex_enabled\).\+$/\1 = 1/g" $configFile
+#   sed -i -e "s/^\(plex_notify\).\+$/\1 = 1/g" $configFile
+#   sed -i -e "s/^\(plex_update\).\+$/\1 = 1/g" $configFile
+#   sed -i -e "s/^\(plex_username\).\+$/\1 = ${PLEX_USERNAME}/g" $configFile
+#   sed -i -e "s/^\(plex_password\).\+$/\1 = ${PLEX_PASSWORD}/g" $configFile
+#   sed -i -e "s/^\(plex_server_host\).\+$/\1 = http:\/\/plex:32400/g" $configFile
+#
+#   #NZBGet config
+#   sed -i -e "s/^\(nzbget_host\).\+$/\1 = http:\/\/nzbget:6789/g" $configFile
+#   sed -i -e "s/^\(nzbget_username\).\+$/\1 = ${NZBGET_USERNAME}/g" $configFile
+#   sed -i -e "s/^\(nzbget_password\).\+$/\1 = ${NZBGET_PASSWORD}/g" $configFile
+#   sed -i -e "s/^\(nzbget_category\).\+$/\1 = Music/g" $configFile
+# }
 
 configure_plex()
 {
@@ -409,7 +441,8 @@ configure_plex()
   fi
 
   docker-compose up -d plex
-  check_if_running 'http://localhost:32400' 401 "web/index" 500
+  # check_if_running 'http://localhost:32400' 401 "web/index" 500
+  check_if_running 'http://localhost:32400/web/index.html' 200 "Plex" 500
   docker-compose stop plex
 }
 
@@ -484,7 +517,7 @@ configure_sonarr()
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
-  sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
+  # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
   sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/sonarr/config.xml
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/sonarr/config.xml
 }
@@ -509,7 +542,7 @@ configure_radarr()
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"radarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,ReplaceIllegalCharacters,StandardMovieFormat,MovieFolderFormat,ColonReplacementFormat) values (0,1,1,'{Movie Title} {Release Year} {Quality Title}','{Movie Title} ({Release Year})',1)"
-  sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/radarr<\/UrlBase>/" $CONFIG_DIR/radarr/config.xml
+  # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/radarr<\/UrlBase>/" $CONFIG_DIR/radarr/config.xml
   sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/radarr/config.xml
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/radarr/config.xml
 }
@@ -615,7 +648,7 @@ build_and_configure()
 
   configure_plex
   configure_nzbget
-  configure_headphones
+  configure_lidarr
   configure_ombi
   configure_sonarr
   configure_radarr
@@ -624,20 +657,18 @@ build_and_configure()
 }
 
 install
-# gather_required_config
-# build_and_configure
 
 echo
 echo "You may need to perform some extra setup steps in each application"
 echo
-echo "NZBGet:     http://localhost:6789"
-echo "Plex:       http://localhost:32400/web/"
-echo "Plex Stats: http://localhost:8181"
-echo "Headphones: http://localhost:8080"
-echo "Sonarr:     http://localhost:8989"
-echo "Radarr:     http://localhost:7878"
-echo "OMBI:       http://localhost:5000"
-echo "Portal:     http://localhost"
+echo "NZBGet:     http://nzbget.${DOMAIN}:6789"
+echo "Plex:       http://plex.${DOMAIN}"
+echo "Plex Stats: http://stats.${DOMAIN}"
+echo "Lidarr:     http://lidarr.${DOMAIN}"
+echo "Sonarr:     http://sonarr.${DOMAIN}"
+echo "Radarr:     http://radarr.${DOMAIN}"
+echo "OMBI:       http://request.${DOMAIN}"
+echo "Portal:     http://portal.${DOMAIN}"
 echo
 echo
 
