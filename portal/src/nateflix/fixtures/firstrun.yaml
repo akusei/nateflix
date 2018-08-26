@@ -1,4 +1,0 @@
-- model: nateflix.firstrun
-  pk: 1
-  fields:
-    is_first_run: yes
