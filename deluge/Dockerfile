@@ -2,10 +2,11 @@ FROM python:3.7.0-alpine3.8
 
 # ADD REPO AND UPDATE
 RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
+		echo "@edge http://nl.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
 		apk update
 
 # INSTALL DELUGE
-RUN apk add py-pip deluge@testing && \
+RUN apk add py-pip boost-system@edge boost-python@edge deluge@testing && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
 		pip2 install incremental constantly packaging automat service_identity && \
