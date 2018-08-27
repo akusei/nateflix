@@ -13,41 +13,42 @@ services:
       - "80:80"     # The HTTP port
       - "8888:8080" # The Web UI (enabled by --api)
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    env_file:
+      - .env
 
   nzbget:
     labels:
-      - "traefik.frontend.rule=Host:nzbget.${DOMAIN}"
+      - "traefik.frontend.rule=Host:newz.${DOMAIN}"
+    depends_on:
+      - portal
     container_name: nzbget
     restart: unless-stopped
     image: nzbget
     build: ./nzbget
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
     ports:
       - 6789:6789/tcp
-    # volumes:
-    #   - /etc/localtime:/etc/localtime:ro
-    #   - ${CONFIG_DIR}/nzbget:/data
-    #   - ${DATA_DIR}:/media
-    #   - ${NZBGET_SOFTWARE_DIR}:/software
+    expose:
+      - 6789
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONFIG_DIR}/nzbget:/data
+      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
+      - ${MEDIA_ROOT}:/myfiles
     env_file:
       - .env
 
   plex:
     labels:
-      - "traefik.frontend.rule=Host:plex.${DOMAIN}"
+      - "traefik.frontend.rule=Host:watch.${DOMAIN}"
       - "traefik.port=32400"
+    depends_on:
+      - portal
     container_name: plex
-    restart: unless-stopped
     image: plexinc/pms-docker:plexpass
-    environment:
-      # might need to comment this out
-      # - ADVERTISE_IP="http://localhost:32400/"
-      - PLEX_UPDATE_CHANNEL=8
-      - PLEX_CLAIM=${PLEX_CLAIM}
-      - TZ=${TZ}
-    #network_mode: host
+    restart: unless-stopped
     ports:
       - 32400:32400/tcp
       - 3005:3005/tcp
@@ -58,24 +59,36 @@ services:
       - 32412:32412/udp
       - 32413:32413/udp
       - 32414:32414/udp
+    expose:
+      - 32400
+    hostname: ${PLEX_HOSTNAME}
+    environment:
+      TZ: ${TZ}
+      PLEX_CLAIM: ${PLEX_CLAIM}
+      ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
+      PLEX_UPDATE_CHANNEL: 8
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plex/config:/config
       - ${CONFIG_DIR}/plex/transcode:/transcode
-      - ${CONFIG_DIR}/plex/media:/data
+      - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
   plexstats:
     labels:
       - "traefik.frontend.rule=Host:stats.${DOMAIN}"
+    depends_on:
+      - portal
     container_name: plexstats
     restart: unless-stopped
     image: tautulli/tautulli
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
     ports:
       - 8181:8181/tcp
+    expose:
+      - 8181
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plexstats:/config
@@ -86,14 +99,20 @@ services:
   ombi:
     labels:
       - "traefik.frontend.rule=Host:request.${DOMAIN}"
+    depends_on:
+      - portal
     container_name: ombi
     restart: unless-stopped
     image: ombi
-    build: ombi
+    build: ./ombi
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
     ports:
       - 5000:5000/tcp
+    expose:
+      - 5000
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/ombi:/data
@@ -102,64 +121,82 @@ services:
 
   sonarr:
     labels:
-      - "traefik.frontend.rule=Host:sonarr.${DOMAIN}"
+      - "traefik.frontend.rule=Host:shows.${DOMAIN}"
+    depends_on:
+      - portal
     container_name: sonarr
     restart: unless-stopped
     image: sonarr
-    build: ./sonarr
+    build: sonarr
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
     ports:
       - 8989:8989/tcp
+    expose:
+      - 8989
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/sonarr:/data
-      - ${DATA_DIR}:/media
+      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
+      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
+      - ${MEDIA_ROOT}:/myfiles
     env_file:
       - .env
 
   radarr:
     labels:
-      - "traefik.frontend.rule=Host:radarr.${DOMAIN}"
+      - "traefik.frontend.rule=Host:movies.${DOMAIN}"
+    depends_on:
+      - portal
     container_name: radarr
     restart: unless-stopped
-    stop_signal: SIGQUIT
     image: radarr
-    build: ./radarr
+    build: radarr
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
     ports:
       - 7878:7878/tcp
+    expose:
+      - 7878
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/radarr:/data
-      - ${DATA_DIR}:/media
+      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
+      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
+      - ${MEDIA_ROOT}:/myfiles
     env_file:
       - .env
 
   lidarr:
     labels:
-      - "traefik.frontend.rule=Host:lidarr.${DOMAIN}"
+      - "traefik.frontend.rule=Host:music.${DOMAIN}"
+    depends_on:
+      - portal
     container_name: lidarr
     restart: unless-stopped
-    stop_signal: SIGQUIT
     image: lidarr
     build: lidarr
     environment:
-      - TZ=${TZ}
+      TZ: ${TZ}
     ports:
       - 8686:8686/tcp
+    expose:
+      - 8686
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/nzbget/downloads/completed/Music:/downloads
       - ${CONFIG_DIR}/lidarr:/config
-      - /:/myfilesystem
+      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
+      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
+      - ${MEDIA_ROOT}:/myfiles
     env_file:
       - .env
 
   deluge:
     labels:
-      - "traefik.frontend.rule=Host:deluge.${DOMAIN}"
+      - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
+      - "traefik.port=8112"
+    depends_on:
+      - portal
     container_name: deluge
     restart: unless-stopped
     image: deluge
@@ -170,6 +207,8 @@ services:
     ports:
       - 58846:58846/tcp
       - 8112:8112/tcp
+    expose:
+      - 8112
     dns:
       - 209.222.18.222
       - 209.222.18.218
@@ -180,7 +219,7 @@ services:
       - ${CONFIG_DIR}/deluge:/data
       - ${CONFIG_DIR}/deluge-web:/data-web
       - ${CONFIG_DIR}/openvpn:/openvpn
+      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
+      - ${MEDIA_ROOT}:/myfiles
     env_file:
       - .env
-
-# curl ipinfo.io/ip

@@ -130,6 +130,8 @@ gather_required_config()
 
   CONFIG_DIR=/nateflix
   export CONFIG_DIR
+  PLEX_HOSTNAME=Nateflix
+  export PLEX_HOSTNAME
 
   read -ep "Plex username: " PLEX_USERNAME
   read -esp "Plex password: " PLEX_PASSWORD
@@ -161,10 +163,6 @@ gather_required_config()
   PLEX_CLAIM="not a real token"
   export PLEX_CLAIM
 
-  DOMAIN=nateflix.io
-  DOMAIN=$(get_value "Nateflix domain name" $DOMAIN)
-  export DOMAIN
-
   read -ep "VPN Username: " VPN_USERNAME
   read -esp "VPN Password: " VPN_PASSWORD
   echo
@@ -177,13 +175,21 @@ gather_required_config()
 
   echo
 
+  DOMAIN=nateflix.io
+  DOMAIN=$(get_value "Nateflix domain name" $DOMAIN)
+  export DOMAIN
+
+  ADVERTISE_IP=192.168.1.147
+  ADVERTISE_IP=$(get_value "IP address of this server" $ADVERTISE_IP)
+  export ADVERTISE_IP
+
   INSTALL_DIR="/opt/nateflix"
   INSTALL_DIR=$(get_value "Where do you want to install Nateflix" $INSTALL_DIR)
   if [[ -d $INSTALL_DIR ]]; then
     read -ep "Directory already exists, overwrite [n]? " yn
     case $yn in
       [Yy]* )
-        rm -rf $INSTALL_DIR
+        #rm -rf $INSTALL_DIR
         ;;
       *)
         echo "Aborting installation"
@@ -199,17 +205,9 @@ gather_required_config()
   fi
   export INSTALL_DIR
 
-  DATA_DIR=/mnt/media
-  DATA_DIR=$(get_value "Root location of media library" $DATA_DIR)
-  export DATA_DIR
-
-  NZBGET_SOFTWARE_DIR=/mnt/media/software/incoming
-  NZBGET_SOFTWARE_DIR=$(get_value "Incoming software directory" $NZBGET_SOFTWARE_DIR)
-  export NZBGET_SOFTWARE_DIR
-
-  HEADPHONES_MUSIC_DIR=/mnt/media/music
-  DATA_DIR=$(get_value "Root location of music library" $HEADPHONES_MUSIC_DIR)
-  export HEADPHONES_MUSIC_DIR
+  MEDIA_ROOT=/mnt/media
+  MEDIA_ROOT=$(get_value "Root location of media library" $MEDIA_ROOT)
+  export MEDIA_ROOT
 
   echo
 
@@ -243,17 +241,6 @@ gather_required_config()
       ;;
   esac
   export DELUGEWEB_PASSWORD
-
-  read -ep "Do you want Headphones to use a password [n]? " yn
-  case $yn in
-    [Yy]* )
-      read -ep "Headphones Username: " HEADPHONES_USERNAME
-      read -esp "Headphones Password: " HEADPHONES_PASSWORD
-      echo
-      ;;
-  esac
-  export HEADPHONES_USERNAME
-  export HEADPHONES_PASSWORD
 
   TZ=$(date +%Z)
   export TZ
@@ -328,7 +315,7 @@ install()
 
   echo "Creating directories"
   mkdir -p $INSTALL_DIR
-  mkdir -p $DATA_DIR
+  mkdir -p $MEDIA_ROOT
 
   echo "Copying files"
   cp -Rv $WORKING_DIR/. $INSTALL_DIR >> $LOG_FILE
@@ -341,12 +328,16 @@ install()
   echo TZ=$TZ >> $INSTALL_DIR/.env
   echo "Setting CONFIG_DIR to ${CONFIG_DIR}" >> $LOG_FILE
   echo CONFIG_DIR=$CONFIG_DIR >> $INSTALL_DIR/.env
-  echo "Setting DATA_DIR to ${DATA_DIR}" >> $LOG_FILE
-  echo DATA_DIR=$DATA_DIR >> $INSTALL_DIR/.env
+  echo "Setting MEDIA_ROOT to ${MEDIA_ROOT}" >> $LOG_FILE
+  echo MEDIA_ROOT=$MEDIA_ROOT >> $INSTALL_DIR/.env
   echo "Setting PLEX_CLAIM to ${PLEX_CLAIM}" >> $LOG_FILE
   echo PLEX_CLAIM=$PLEX_CLAIM >> $INSTALL_DIR/.env
   echo "Setting DOMAIN to ${DOMAIN}" >> $LOG_FILE
   echo DOMAIN=$DOMAIN >> $INSTALL_DIR/.env
+  echo "Setting ADVERTISE_IP to ${ADVERTISE_IP}" >> $LOG_FILE
+  echo ADVERTISE_IP=$ADVERTISE_IP >> $INSTALL_DIR/.env
+  echo "Setting PLEX_HOSTNAME to ${PLEX_HOSTNAME}" >> $LOG_FILE
+  echo PLEX_HOSTNAME=$PLEX_HOSTNAME >> $INSTALL_DIR/.env
 
   echo
   echo
@@ -366,61 +357,26 @@ configure_lidarr()
   echo "**************************"
   echo
 
+  local dbFile=$CONFIG_DIR/lidarr/lidarr.db
+  if [[ -f $dbFile ]]; then
+    echo "Lidarr already configured; skipping..."
+    return
+  fi
+
   docker-compose up -d lidarr
   check_if_running 'http://localhost:8686' 200 'Lidarr' 30
   docker-compose stop lidarr
 
-  local dbFile=$CONFIG_DIR/lidarr/lidarr.db
   sqlite3 $dbFile "insert into Config (Key,Value) values ('autounmonitorpreviouslydownloadedtracks', 'True')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('copyusinghardlinks', 'False')"
+  sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"${NZBGET_USERNAME}\",\"password\":\"${NZBGET_PASSWORD}\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
-  # sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
-  # sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
-  # sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
-  # sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
-  # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
-  sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/lidarr/config.xml
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'deluge','Deluge','{\"host\":\"deluge\",\"port\":8112,\"username\":\"${DELUGE_USERNAME}\",\"password\":\"${DELUGE_PASSWORD}\",\"musicCategory\":\"lidarr\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','DelugeSettings')"
+  sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnAlbumDownload) values ('plex',0,1,'{\"host\":\"plex\",\"port\":32400,\"username\":\"${PLEX_USERNAME}\",\"password\":\"${PLEX_PASSWORD}\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1)"
+  sed -i -e "s/<\/Config>/<LaunchBrowser>False<\/LaunchBrowser>\n<\/Config>/" $CONFIG_DIR/lidarr/config.xml
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/lidarr/config.xml
 }
-
-"1"	"1"	"1"	"{Artist Name} - {Album Title} - {track:00} - {Track Title}"	"1"	"{Artist Name} - {Album Title} - {track:00} - {Track Title}"	"{Album Title} ({Release Year})"
-
-# configure_headphones()
-# {
-#   echo
-#   echo
-#   echo "**************************"
-#   echo "* CONFIGURING HEADPHONES *"
-#   echo "**************************"
-#   echo
-#
-#   local configFile=$CONFIG_DIR/headphones/config.ini
-#
-#   docker-compose up -d headphones
-#   check_if_running 'http://localhost:8080/home' 200 'Headphones'
-#   docker-compose stop headphones
-#
-#   #Headphones config
-#   sed -i -e "s/^\(http_username\).\+$/\1 = ${HEADPHONES_USERNAME}/g" $configFile
-#   sed -i -e "s/^\(http_password\).\+$/\1 = ${HEADPHONES_PASSWORD}/g" $configFile
-#   # sed -i -e "s/^\(http_root\).\+$/\1 = \/headphones/g" $configFile
-#   sed -i -e "s/^\(nzb_downloader\).\+$/\1 = 1/g" $configFile
-#
-#   #Plex config
-#   sed -i -e "s/^\(plex_enabled\).\+$/\1 = 1/g" $configFile
-#   sed -i -e "s/^\(plex_notify\).\+$/\1 = 1/g" $configFile
-#   sed -i -e "s/^\(plex_update\).\+$/\1 = 1/g" $configFile
-#   sed -i -e "s/^\(plex_username\).\+$/\1 = ${PLEX_USERNAME}/g" $configFile
-#   sed -i -e "s/^\(plex_password\).\+$/\1 = ${PLEX_PASSWORD}/g" $configFile
-#   sed -i -e "s/^\(plex_server_host\).\+$/\1 = http:\/\/plex:32400/g" $configFile
-#
-#   #NZBGet config
-#   sed -i -e "s/^\(nzbget_host\).\+$/\1 = http:\/\/nzbget:6789/g" $configFile
-#   sed -i -e "s/^\(nzbget_username\).\+$/\1 = ${NZBGET_USERNAME}/g" $configFile
-#   sed -i -e "s/^\(nzbget_password\).\+$/\1 = ${NZBGET_PASSWORD}/g" $configFile
-#   sed -i -e "s/^\(nzbget_category\).\+$/\1 = Music/g" $configFile
-# }
 
 configure_plex()
 {
@@ -430,6 +386,11 @@ configure_plex()
   echo "*    CONFIGURING PLEX    *"
   echo "**************************"
   echo
+
+  if [[ -f "${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Preferences.xml" ]]; then
+    echo "Plex already configured; skipping..."
+    return
+  fi
 
   echo "Getting Plex claim token"
   local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
@@ -460,9 +421,13 @@ configure_nzbget()
   echo
 
   local configFile=$CONFIG_DIR/nzbget/config/nzbget.conf
+  if [[ -f $configFile ]]; then
+    echo "NzbGet already configured; skipping..."
+    return
+  fi
 
   docker-compose up -d nzbget
-  check_if_running 'http://localhost:6789' 401
+  check_if_running 'http://localhost:6789' 401 '' 10
   docker-compose stop nzbget
 
   #nzbget config
@@ -478,6 +443,11 @@ configure_ombi()
   echo "*    CONFIGURING OMBI    *"
   echo "**************************"
   echo
+
+  if [[ -f ${CONFIG_DIR}/ombi/Ombi.db ]]; then
+    echo "OMBI already configured; skipping..."
+    return
+  fi
 
   docker-compose up -d ombi
   check_if_running 'http://localhost:5000' 200 'Ombi'
@@ -510,11 +480,16 @@ configure_sonarr()
   echo "**************************"
   echo
 
+  local dbFile=$CONFIG_DIR/sonarr/nzbdrone.db
+  if [[ -f $dbFile ]]; then
+    echo "Sonarr already configured; skipping..."
+    return
+  fi
+
   docker-compose up -d sonarr
   check_if_running 'http://localhost:8989' 200 'Sonarr'
   docker-compose stop sonarr
 
-  local dbFile=$CONFIG_DIR/sonarr/nzbdrone.db
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
@@ -535,11 +510,16 @@ configure_radarr()
   echo "**************************"
   echo
 
+  local dbFile=$CONFIG_DIR/radarr/nzbdrone.db
+  if [[ -f $dbFile ]]; then
+    echo "Radarr already configured; skipping..."
+    return
+  fi
+
   docker-compose up -d radarr
   check_if_running 'http://localhost:7878' 200 'Radarr'
   docker-compose stop radarr
 
-  local dbFile=$CONFIG_DIR/radarr/nzbdrone.db
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
@@ -560,46 +540,25 @@ configure_plexstats()
   echo "**************************"
   echo
 
+  local configFile=$CONFIG_DIR/plexstats/config.ini
+  if [[ -f $configFile ]]; then
+    echo "Plex Stats already configured; skipping..."
+    return
+  fi
+
   docker-compose up -d plexstats >> $LOG_FILE
   check_if_running 'http://localhost:8181' 200 'Tautulli - Welcome' 500
   docker-compose stop plexstats
 
-  # local configFile=$CONFIG_DIR/plexstats/config.ini
-  # sed -ie "s/^\(pms_url\).\+$/\1 = http:\/\/plex:32400/g" $configFile
-  # sed -ie "s/^\(pms_name\).\+$/\1 = Nateflix/g" $configFile
-  # sed -ie "s/^\(pms_plexpass\).\+$/\1 = 1/g" $configFile
-  # sed -ie "s/^\(pms_port\).\+$/\1 = 32400/g" $configFile
-  # sed -ie "s/^\(pms_platform\).\+$/\1 = Linux/g" $configFile
-
-  # pms_uuid = ead9a1d35c9548e083ff32446d706b7a
-  # pms_logs_folder = ""
-  # pms_token = oWBhYj6tLBib2TMHMdvD
-  # pms_identifier = c13e822787b74f572f2dd8bbec742d524e4a6c24
-  # pms_version = 1.13.3.5223-cd1e0da1b
-  # pms_ip = 23.242.1.150
-
-  # pms_use_bif = 0
-  # pms_uuid = 59cde56c75ff4402b65b0c3c8d606e42
-  # pms_url_manual = 0
-  # pms_web_url = https://app.plex.tv/desktop
-  # pms_url = ""
-  # pms_update_channel = plex
-  # pms_update_distro = ""
-  # pms_name = ""
-  # pms_logs_folder = ""
-  # pms_plexpass = 0
-  # pms_token = ""
-  # pms_url_override = ""
-  # pms_port = 32400
-  # pms_is_remote = 0
-  # pms_identifier = ""
-  # pms_ssl = 0
-  # pms_version = ""
-  # pms_update_distro_build = ""
-  # pms_ip = 127.0.0.1
-  # pms_logs_line_cap = 1000
-  # pms_platform = ""
-  # pms_is_cloud = 0
+  sed -i -e "s/^\(pms_url\) =.\+$/\1 = http:\/\/plex:32400/g" $configFile
+  sed -i -e "s/^\(pms_name\) =.\+$/\1 = ${PLEX_HOSTNAME}/g" $configFile
+  sed -i -e "s/^\(pms_plexpass\) =.\+$/\1 = 1/g" $configFile
+  sed -i -e "s/^\(pms_port\) =.\+$/\1 = 32400/g" $configFile
+  sed -i -e "s/^\(pms_platform\) =.\+$/\1 = Linux/g" $configFile
+  sed -i -e "s/^\(pms_ip\) =.\+$/\1 = plex/g" $configFile
+  sed -i -e "s/^\(launch_browser\) =.\+$/\1 = 0/g" $configFile
+  sed -i -e "s/^\(show_advanced_settings\) =.\+$/\1 = 1/g" $configFile
+  sed -i -e "s/^\(pms_logs_folder\) =.\+$/\1 = \/logs/g" $configFile
 }
 
 configure_deluge()
@@ -610,6 +569,11 @@ configure_deluge()
   echo "*   CONFIGURING DELUGE   *"
   echo "**************************"
   echo
+
+  if [[ -f ${CONFIG_DIR}/deluge/core.conf && -f  ${CONFIG_DIR}/deluge-web/web.conf ]]; then
+    echo "Deluge already configured; skipping..."
+    return
+  fi
 
   docker-compose up -d deluge
   check_if_running 'http://localhost:8112' 200 'Deluge'
@@ -625,9 +589,6 @@ configure_deluge()
 
   local salt=$(head -c 20 /dev/random | sha1sum | cut -d ' ' -f 1)
   local passHash=$(echo -n "${salt}${DELUGEWEB_PASSWORD}" | sha1sum | cut -d ' ' -f 1)
-
-  # web.conf
-  # "base": "/",
 
   sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${passHash}\\2/g" ${CONFIG_DIR}/deluge/core.conf
 
@@ -665,13 +626,14 @@ install
 echo
 echo "You may need to perform some extra setup steps in each application"
 echo
-echo "NZBGet:     http://nzbget.${DOMAIN}:6789"
-echo "Plex:       http://plex.${DOMAIN}"
+echo "NZBGet:     http://newz.${DOMAIN}"
+echo "Plex:       http://watch.${DOMAIN}"
 echo "Plex Stats: http://stats.${DOMAIN}"
-echo "Lidarr:     http://lidarr.${DOMAIN}"
-echo "Sonarr:     http://sonarr.${DOMAIN}"
-echo "Radarr:     http://radarr.${DOMAIN}"
+echo "Lidarr:     http://music.${DOMAIN}"
+echo "Sonarr:     http://shows.${DOMAIN}"
+echo "Radarr:     http://movies.${DOMAIN}"
 echo "OMBI:       http://request.${DOMAIN}"
+echo "Deluge:     http://torrents.${DOMAIN}"
 echo "Portal:     http://portal.${DOMAIN}"
 echo
 echo

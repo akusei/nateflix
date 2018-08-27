@@ -1,5 +1,6 @@
 FROM python:3.7.0-alpine3.8
 
+
 # ADD REPO AND UPDATE
 RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
 		echo "@edge http://nl.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories && \
@@ -10,7 +11,12 @@ RUN apk add py-pip boost-system@edge boost-python@edge deluge@testing && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
 		pip2 install incremental constantly packaging automat service_identity && \
-		mkdir /default
+		mkdir /default && \
+		mkdir /data && \
+		mkdir /data-web && \
+		mkdir /torrent-downloads && \
+		mkdir /myfiles && \
+		mkdir /openvpn
 
 # INSTALL SUPERVISOR
 RUN apk add supervisor
@@ -31,11 +37,12 @@ RUN rm -rf /tmp/* /var/tmp/* /var/cache/apk/* /var/cache/distfiles/*
 COPY entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod a+x /usr/local/bin/entrypoint
 
+
 EXPOSE 58846/tcp
 EXPOSE 8112/tcp
 
-VOLUME /data /data-web /openvpn
+VOLUME /data /data-web /openvpn /torrent-downloads /myfiles
+
 
 ENTRYPOINT ["entrypoint"]
-
 CMD ["supervisord"]

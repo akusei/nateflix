@@ -15,4 +15,4 @@ if [ -f /data/runtime/nzbget.lock ]; then
   rm -rf /data/runtime/nzbget.lock
 fi
 
-exec /opt/nzbget/nzbget --server -c /data/config/nzbget.conf --option OutputMode=log
+exec "$@"

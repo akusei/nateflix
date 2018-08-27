@@ -1,16 +1,17 @@
 FROM mono:latest
 
 
-ENV DOWNLOAD_URL=https://github.com/lidarr/Lidarr/releases/download
-ENV DISTRO=linux
-ENV BRANCH=develop
-ENV RELEASE=0.3.1.471
+ENV RELEASE_URL=https://api.github.com/repos/lidarr/Lidarr/releases
 
 
-RUN curl -o /opt/lidarr.tgz -L "${DOWNLOAD_URL}/v${RELEASE}/Lidarr.${BRANCH}.${RELEASE}.${DISTRO}.tar.gz" && \
+RUN apt-get update && \
+		apt-get install -y mediainfo && \
+		export URL=$(curl -s ${RELEASE_URL} | grep linux.tar.gz | grep browser_download_url | head -1 | cut -d '"' -f 4 ) && \
+		curl -o /opt/lidarr.tgz -L "${URL}" && \
 		mkdir /config && \
-		mkdir /myfilesystem && \
-		mkdir /downloads && \
+		mkdir /myfiles && \
+		mkdir /nzb-downloads && \
+		mkdir /torrent-downloads && \
 		tar -zxvf /opt/lidarr.tgz -C /opt
 
 RUN rm -rf /opt/lidarr.tgz && \
@@ -18,10 +19,10 @@ RUN rm -rf /opt/lidarr.tgz && \
 
 
 EXPOSE 8686/tcp
-VOLUME /config /myfilesystem /downloads
+VOLUME /config /myfiles /torrent-downloads /nzb-downloads
 
 
-ENTRYPOINT ["/usr/bin/mono", "/opt/Lidarr/Lidarr.exe", "/nobrowser", "/data=/config"]
+ENTRYPOINT ["mono", "--debug", "/opt/Lidarr/Lidarr.exe", "/nobrowser", "/data=/config"]
 
 # FROM python:2.7.15-alpine3.8
 #
