@@ -5,39 +5,6 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-INSTALLER=""
-PACKAGE_UPDATE=""
-PACKAGE_CHECK=""
-DISTRO=""
-
-if grep -q "ubuntu" /etc/os-release; then
-  INSTALLER="apt-get -qq"
-	PACKAGE_UPDATE="apt-get -qq update"
-	PACKAGE_CHECK="dpkg -s"
-	DISTRO="ubuntu"
-elif grep -q "debian" /etc/os-release; then
-  INSTALLER="apt-get -qq"
-	PACKAGE_UPDATE="apt-get -qq update"
-	PACKAGE_CHECK="dpkg -s"
-	DISTRO="debian"
-elif grep -q "fedora" /etc/os-release; then
-  INSTALLER="yum -q -y"
-  PACKAGE_UPDATE="yum -q -y updateinfo"
-  PACKAGE_CHECK="rpm -qa | grep -qw"
-  DISTRO="fedora"
-elif grep -q "centos" /etc/os-release; then
-  INSTALLER="yum -q -y"
-  PACKAGE_UPDATE="yum -q -y updateinfo"
-  PACKAGE_CHECK="rpm -qa | grep -qw"
-  DISTRO="centos"
-#elif [[ grep -q "redhat" ]]
-fi
-
-if [[ -z $DISTRO || $(uname -p) != "x86_64" ]]; then
-	echo "This distro/architecture is not supported"
-	exit 1
-fi
-
 SCRIPT_DIR=$(dirname `realpath "$0"`)
 
 COLOR_NORM="$(printf '\033[0m')"
@@ -59,42 +26,6 @@ COLOR_BOLDCYAN="$(printf '\033[36m')"
 
 WORKING_DIR=""
 
-# is_installed()
-# {
-#   $(eval "${PACKAGE_CHECK} $1" > /dev/null 2>&1
-#   return $?
-# }
-
-get_var()
-{
-  echo $(sed -ne "s/$1=\(.*\)/\1/p" $2)
-}
-
-change_ini ()
-{
-	local iniFile=$1
-	local section=$2
-	local option=$3
-	local value=$4
-	sed -i '/^\['"$section"'\]$/,/^\[/ s|^'"$option"' = .*|'"$option"' = '"$value"'|' $1
-}
-
-# assert_deps()
-# {
-#   if [[ ! is_installed "docker-ce" ]]; then
-#     $PACKAGE_UPDATE
-#     $INSTALLER install docker-ce
-#   fi
-# }
-
-assert_installed()
-{
-    if [ ! -f /etc/nateflix/nateflix.conf ]; then
-      echo "Nateflix is not installed"
-      exit 1
-    fi
-}
-
 print_service_status()
 {
   local SERVICES=$1
@@ -104,7 +35,7 @@ print_service_status()
 
   local output=""
   for service in $SERVICES; do
-    local result=$(docker ps -a --filter name=^/$service$ --format '{{.Names}},{{.Status}}')
+    local result=$(docker ps -a --filter name=^/${service}$ --format '{{.Names}},{{.Status}}')
     if [[ ! -z "$result" ]]; then
       local tmp_color=$COLOR_BOLDRED
       if [[ "$result" =~ "Up" ]]; then
@@ -113,7 +44,7 @@ print_service_status()
         tmp_color=$COLOR_BOLDYELLOW
       fi
       output="$output$(echo $result | awk -v s=$COLOR_BOLDWHITE \
-        -v c=$tmp_color -v e=$COLOR_NORM -F ',' '{print s$1 ":," c$2e}')\n"
+        -v c=$tmp_color -v e=$COLOR_NORM -F ',' '{print s $1 ":," c $2 e}')\n"
     fi
   done
 
@@ -127,41 +58,15 @@ print_service_status()
 control_services()
 {
   docker-compose $1 $2
-  # local SERVICES=$2
-  # if [[ -z $SERVICES ]]; then
-  #   SERVICES=$(docker-compose ps --services)
-  # fi
-  #
-  # for service in $SERVICES; do
-  #   docker-compose $1 $service
-  # done
 }
-
-install_dialog ()
-{
-	echo "Installing dependencies"
-	$PACKAGE_UPDATE > /dev/null 2>&1
-
-	if [[ $(eval "$PACKAGE_CHECK dialog" > /dev/null 2>&1; echo $?) != 0 ]]; then
-		$INSTALLER install dialog > /dev/null 2>&1
-	fi
-
-	if [[ -n "$1" && $(eval "$PACKAGE_CHECK curl" > /dev/null 2>&1; echo $?) != 0 ]]; then
-		$INSTALLER install curl > /dev/null 2>&1
-	fi
-}
-
-# install_docker()
-# {
-#
-# }
 
 backup ()
 {
-  local configDir=$(get_var CONFIG_DIR $SCRIPT_DIR/.env)
+  source ./.env
+
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
-	if [[ ! -d $configDir ]]; then
+	if [[ ! -d $CONFIG_DIR ]]; then
 		echo "No data to backup"
 		return 1
 	fi
@@ -183,12 +88,6 @@ backup ()
 
 	local backupDir=$WORKING_DIR/nateflix
 
-	if [[ $(dpkg -s rsync > /dev/null 2>&1; echo $?) != 0 ]]; then
-		echo "Installing dependencies"
-		apt-get -qq update > /dev/null 2>&1
-		apt-get -qq install rsync > /dev/null 2>&1
-	fi
-
 	echo "Stopping Nateflix"
 	control_services stop
   echo
@@ -196,10 +95,10 @@ backup ()
 	#--------------------------------------------------------
 	# BACKUP RADARR
 	#--------------------------------------------------------
-  if [[ -d $configDir/radarr ]]; then
-		echo -n "saving   radarr     ... "
+  if [[ -d $CONFIG_DIR/radarr ]]; then
+		echo -n "saving   radarr    ... "
 		mkdir -p $backupDir/radarr
-		rsync -aq $configDir/radarr/ $backupDir/radarr \
+		rsync -aq $CONFIG_DIR/radarr/ $backupDir/radarr \
 			--exclude Backups \
 			--exclude logs \
 			--exclude UpdateLogs \
@@ -210,10 +109,10 @@ backup ()
 	#--------------------------------------------------------
 	# BACKUP PLEX
 	#--------------------------------------------------------
-	if [[ -d "$configDir/plex/config/Library/Application Support/Plex Media Server" ]]; then
-		echo -n "saving   plex       ... "
+	if [[ -d "$CONFIG_DIR/plex/config/Library/Application Support/Plex Media Server" ]]; then
+		echo -n "saving   plex      ... "
 		mkdir -p $backupDir/plex
-		rsync -aq "$configDir/plex/config/Library/Application Support/Plex Media Server/" $backupDir/plex \
+		rsync -aq "$CONFIG_DIR/plex/config/Library/Application Support/Plex Media Server/" $backupDir/plex \
 			--exclude Cache \
 			--exclude Crash\ Reports \
 			--exclude Logs \
@@ -224,42 +123,42 @@ backup ()
   #--------------------------------------------------------
 	# BACKUP OMBI
 	#--------------------------------------------------------
-	if [[ -d $configDir/ombi ]]; then
-		echo -n "saving   ombi       ... "
+	if [[ -d $CONFIG_DIR/ombi ]]; then
+		echo -n "saving   ombi      ... "
 		mkdir -p $backupDir/ombi
-		cp $configDir/ombi/Ombi.db $backupDir/ombi
-    cp $configDir/ombi/Schedules.db $backupDir/ombi
+		cp $CONFIG_DIR/ombi/Ombi.db $backupDir/ombi
+    cp $CONFIG_DIR/ombi/Schedules.db $backupDir/ombi
 		echo $doneStr
 	fi
 
   #--------------------------------------------------------
   # BACKUP TAUTULLI
   #--------------------------------------------------------
-  if [[ -d $configDir/plexstats/config ]]; then
-		echo -n "saving   plexstats  ... "
+  if [[ -d $CONFIG_DIR/plexstats/config ]]; then
+		echo -n "saving   plexstats ... "
 		mkdir -p $backupDir/plexstats
-    cp $configDir/plexstats/config/config.ini $backupDir/plexstats
-    cp $configDir/plexstats/config/tautulli.db $backupDir/plexstats
+    cp $CONFIG_DIR/plexstats/config/config.ini $backupDir/plexstats
+    cp $CONFIG_DIR/plexstats/config/tautulli.db $backupDir/plexstats
 		echo $doneStr
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP NZBGET
 	#--------------------------------------------------------
-	if [[ -f $configDir/nzbget/config/nzbget.conf ]]; then
-		echo -n "saving   nzbget     ... "
+	if [[ -d $CONFIG_DIR/nzbget/config ]]; then
+		echo -n "saving   nzbget    ... "
 		mkdir -p $backupDir/nzbget
-		cp $configDir/nzbget/config/nzbget.conf $backupDir/nzbget
+		cp $CONFIG_DIR/nzbget/config/nzbget.conf $backupDir/nzbget
 		echo $doneStr
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP SONARR
 	#--------------------------------------------------------
-	if [[ -d $configDir/sonarr ]]; then
-		echo -n "saving   sonarr     ... "
+	if [[ -d $CONFIG_DIR/sonarr ]]; then
+		echo -n "saving   sonarr    ... "
 		mkdir -p $backupDir/sonarr
-		rsync -aq $configDir/sonarr/ $backupDir/sonarr \
+		rsync -aq $CONFIG_DIR/sonarr/ $backupDir/sonarr \
 			--exclude Backups \
 			--exclude logs \
 			--exclude UpdateLogs \
@@ -268,51 +167,107 @@ backup ()
 	fi
 
 	#--------------------------------------------------------
-	# BACKUP HEADPHONES
+	# BACKUP LIDARR
 	#--------------------------------------------------------
-	if [[ -d $configDir/headphones ]]; then
-		echo -n "saving   headphones ... "
-		mkdir -p $backupDir/headphones
-		cp $configDir/headphones/headphones.db $backupDir/headphones
-		cp $configDir/headphones/config.ini $backupDir/headphones
+	if [[ -d $CONFIG_DIR/lidarr ]]; then
+		echo -n "saving   lidarr    ... "
+		mkdir -p $backupDir/lidarr
+    rsync -aq $CONFIG_DIR/lidarr/ $backupDir/lidarr \
+			--exclude Backups \
+			--exclude logs \
+			--exclude UpdateLogs \
+			--exclude lidarr.pid
 		echo $doneStr
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP DELUGE
 	#--------------------------------------------------------
-	# if [[ -d $homeDir/.config/deluge ]]; then
-	# 	show_progress "Processing Deluge"
-	# 	mkdir $backupDir/deluge
-	# 	step_progress 1
-	# 	rsync -aq $homeDir/.config/deluge/ $backupDir/deluge
-	# 	printf "$msgFormat" "Deluge" "  \Z2COMPLETED\Zn" >> $msgFile
-	# 	hasFiles=1
-	# else
-	# 	printf "$msgFormat" "Deluge" "\Z1NOT INSTALLED\Zn" >> $msgFile
-	# 	step_progress 2
-	# fi
+	if [[ -d $CONFIG_DIR/deluge ]]; then
+		echo -n "saving   deluge    ... "
+		mkdir -p $backupDir/deluge
+		mkdir -p $backupDir/deluge-web
+		rsync -aq $CONFIG_DIR/deluge/ $backupDir/deluge \
+      --exclude state \
+      --exclude downloads \
+      --exclude deluged.log
+    rsync -aq $CONFIG_DIR/deluge-web/ $backupDir/deluge-web \
+      --exclude deluge-web.log
+		echo $doneStr
+	fi
 
-	#--------------------------------------------------------
+  #--------------------------------------------------------
 	# BACKUP OPENVPN
 	#--------------------------------------------------------
-	# if [[ -d /etc/openvpn ]]; then
-	# 	show_progress "Processing OpenVPN"
-	# 	mkdir $backupDir/openvpn
-	# 	step_progress 1
-	# 	rsync -aq /etc/openvpn/ $backupDir/openvpn
-	# 	printf "$msgFormat" "OpenVPN" "  \Z2COMPLETED\Zn" >> $msgFile
-	# 	hasFiles=1
-	# else
-	# 	printf "$msgFormat" "OpenVPN" "\Z1NOT INSTALLED\Zn" >> $msgFile
-	# 	step_progress 2
-	# fi
+	if [[ -d $CONFIG_DIR/openvpn ]]; then
+		echo -n "saving   openvpn   ... "
+		mkdir -p $backupDir/openvpn
+    cp -R $CONFIG_DIR/openvpn/* $backupDir/openvpn/
+		echo $doneStr
+	fi
+
+  #--------------------------------------------------------
+	# BACKUP PORTAL
+	#--------------------------------------------------------
+	if [[ -d $CONFIG_DIR/portal ]]; then
+		echo -n "saving   portal    ... "
+		mkdir -p $backupDir/portal
+    cp -R $CONFIG_DIR/portal/* $backupDir/portal/
+		echo $doneStr
+	fi
 
 	if [[ -d $backupDir ]]; then
-		echo -n "creating backup     ... "
-		tar -czvf $backupFile -C $backupDir . > /dev/null
+    cp .env $backupDir
+    echo
+		echo -n "creating backup    ... "
+    cd $backupDir
+		tar -czf $backupFile .env * > /dev/null
+    cd - > /dev/null
     echo $doneStr
 	fi
+
+	echo -n "cleaning up        ... "
+	rm -rf $backupDir
+  echo $doneStr
+  echo
+
+	echo "Staring Nateflix"
+	control_services start
+
+	echo
+
+	return 0
+}
+
+restore ()
+{
+  source ./.env
+
+  local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
+
+  WORKING_DIR=$(mktemp -d)
+	local backupDir=$WORKING_DIR/nateflix
+
+  mkdir -p $backupDir
+  mkdir -p $CONFIG_DIR
+  tar -zxvf $1 -C $backupDir > /dev/null
+
+	echo "Stopping Nateflix"
+	control_services stop
+  echo
+
+  cd $backupDir
+  for dir in *; do
+    if [[ -d $dir ]]; then
+      printf "restoring %-10s ... " $dir
+      mkdir -p $CONFIG_DIR/$dir
+      cp -Rf $backupDir/$dir/* $CONFIG_DIR/$dir/
+      echo $doneStr
+    fi
+  done
+  cd - > /dev/null
+
+  # cp -f .env $SCRIPT_DIR
 
 	echo -n "cleaning up         ... "
 	rm -rf $backupDir
@@ -322,321 +277,72 @@ backup ()
 	echo "Staring Nateflix"
 	control_services start
 
-	echo "${COLOR_GREEN}Complete${COLOR_NORM}"
+	echo
 
 	return 0
 }
 
-restore ()
+upgrade ()
 {
-	install_dialog
+  local SERVICES=$1
+  if [[ -z $SERVICES ]]; then
+    SERVICES=$(docker-compose ps --services)
+  fi
 
-	if [[ ! -f /etc/nateflix/installed ]]; then
-		dialog --backtitle $BACKTITLE --title " Message " --msgbox "Nateflix is not installed" 5 40
-		return 1
-	fi
+  for service in $SERVICES; do
+    local image_name="${service}"
+    case "${service}" in
+    	"plex")
+        image_name="plexinc/pms-docker";;
+      "plexstats")
+        image_name="tautulli/tautulli";;
+      "portal")
+        image_name="traefik";;
+    esac
 
-	if [[ ! -f $1 ]]; then
-		dialog --backtitle $BACKTITLE --title " Message " --msgbox "$1 does not exist" 7 80
-		return 1
-	fi
-
-	local msgFormat="%-11s   [ %-15s ]\\n"
-	local msgFile=$WORKING_DIR/msg
-	local username=$(cat /etc/nateflix/installed)
-	local backupDir=$WORKING_DIR/nateflix
-	mkdir -p $backupDir
-	local homeDir=/home/$username
-
-	(
-		set_progress_count 20
-
-		if [[ $(dpkg -s rsync > /dev/null 2>&1; echo $?) != 0 ]]; then
-			show_progress "Installing dependencies"
-			apt-get -qq update > /dev/null 2>&1
-			apt-get -qq install rsync > /dev/null 2>&1
-		else
-			step_progress 1
-		fi
-
-		#TODO: TEST THIS
-		show_progress "Extracting backup file"
-		tar -C $backupDir -zxvf $1 > /dev/null 2>&1
-		if [[ "$?" != "0" ]]; then
-			rm -rf $backupDir
-			echo "Backup file is damaged or corrupt" > $WORKING_DIR/error
-			return 1
-		fi
-
-		show_progress "Stopping services"
-		control_services stop
-
-		#--------------------------------------------------------
-		# RESTORE COUCHPOTATO
-		#--------------------------------------------------------
-		if [[ -d $backupDir/couchpotato && -d $homeDir/.couchpotato ]]; then
-			show_progress "Processing CouchPotato"
-			mkdir -p $homeDir/.couchpotato
-			step_progress 1
-			rm -rf $homeDir/.couchpotato/*
-			step_progress 1
-			rsync -aq $backupDir/couchpotato/ $homeDir/.couchpotato
-			chown -R $username:$username $homeDir/.couchpotato
-			printf "$msgFormat" "CouchPotato" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "CouchPotato" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 3
-		fi
-
-		#--------------------------------------------------------
-		# RESTORE PLEX
-		#--------------------------------------------------------
-		if [[ -d $backupDir/plex && -d "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/" ]]; then
-			show_progress "Processing Plex"
-			mkdir -p "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/"
-			step_progress 1
-			rm -rf "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/*"
-			step_progress 1
-			rsync -aq $backupDir/plex/ "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server"
-			chown -R plex:plex "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server"
-			printf "$msgFormat" "Plex" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "Plex" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 3
-		fi
-
-		#--------------------------------------------------------
-		# RESTORE NZBGET
-		#--------------------------------------------------------
-		if [[ -d $backupDir/nzbget && -f /opt/nzbget/nzbget.conf ]]; then
-			show_progress "Processing NzbGet"
-			mkdir -p /opt/nzbget
-			rm /opt/nzbget/nzbget.conf
-			cp $backupDir/nzbget/nzbget.conf /opt/nzbget
-			chown -R $username:$username /opt/nzbget
-			printf "$msgFormat" "NzbGet" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "NzbGet" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 1
-		fi
-
-		#--------------------------------------------------------
-		# RESTORE SONARR
-		#--------------------------------------------------------
-		if [[ -d $backupDir/sonarr && -d $homeDir/.config/NzbDrone ]]; then
-			show_progress "Processing Sonarr"
-			mkdir -p $homeDir/.config/NzbDrone
-			step_progress 1
-			rm -rf $homeDir/.config/NzbDrone/*
-			step_progress 1
-			rsync -aq $backupDir/sonarr/ $homeDir/.config/NzbDrone
-			chown -R $username:$username $homeDir/.config/NzbDrone
-			printf "$msgFormat" "Sonarr" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "Sonarr" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 3
-		fi
-
-		#--------------------------------------------------------
-		# RESTORE HEADPHONES
-		#--------------------------------------------------------
-		if [[ -d $backupDir/headphones && -d $homeDir/.headphones ]]; then
-			show_progress "Processing Headphones"
-			mkdir -p $homeDir/.headphones
-			mkdir -p /etc/headphones
-			cp $backupDir/headphones/headphones.db $homeDir/.headphones
-			cp $backupDir/headphones/headphones.ini /etc/headphones
-			chown -R $username:$username $homeDir/.headphones
-			chown -R $username:$username /etc/headphones
-			printf "$msgFormat" "Headphones" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "Headphones" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 1
-		fi
-
-		#--------------------------------------------------------
-		# RESTORE DELUGE
-		#--------------------------------------------------------
-		if [[ -d $backupDir/deluge && -d $homeDir/.config/deluge ]]; then
-			show_progress "Processing Deluge"
-			mkdir -p $homeDir/.config/deluge/
-			step_progress 1
-			rsync -aq $backupDir/deluge/ $homeDir/.config/deluge
-			chown -R $username:$username $homeDir/.config/deluge
-			printf "$msgFormat" "Deluge" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "Deluge" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 2
-		fi
-
-		#--------------------------------------------------------
-		# RESTORE OPENVPN
-		#--------------------------------------------------------
-		if [[ -d $backupDir/openvpn && -d /etc/openvpn ]]; then
-			show_progress "Processing OpenVPN"
-			mkdir -p /etc/openvpn/
-			step_progress 1
-			rsync -aq $backupDir/openvpn/ /etc/openvpn
-			systemctl disable openvpn > /dev/null 2>&1
-			systemctl enable openvpn@pia > /dev/null 2>&1
-			printf "$msgFormat" "OpenVPN" "\Z2COMPLETED\Zn" >> $msgFile
-		else
-			printf "$msgFormat" "OpenVPN" " \Z1SKIPPED\Zn" >> $msgFile
-			step_progress 2
-		fi
-
-		show_progress "Cleaning up"
-		rm -rf $backupDir
-
-		show_progress "Starting services"
-		control_services start
-	) |
-	dialog --backtitle $BACKTITLE --title " Restore Progress " --guage "" 8 70
-
-	local ret=0
-
-	if [[ -f $WORKING_DIR/error ]]; then
-		dialog --backtitle $BACKTITLE --title " Restore Failed " --msgbox "$(cat $WORKING_DIR/error)" 11 31
-		ret=1
-	else
-		dialog --colors --no-collapse --backtitle $BACKTITLE --title " Restore Complete " --msgbox "$(cat $msgFile)" 11 31
-	fi
-
-	rm -rf $msgFile
-
-	return $ret
-}
-
-install ()
-{
-  # export NZBGET_USERNAME=""
-  # export NZBGET_PASSWORD=""
-  #
-  # if [[ ! -f ${DATA_DIR}/nzbget/config/nzbget.conf ]]; then
-  #   read -ep "Do you want NZBGet to have a password [n]? " yn
-  #   case $yn in
-  #       [Yy]* )
-  #         while true; do
-  #           read -ep "NZBGET Username: " NZBGET_USERNAME
-  #           if [[ ! -z "$NZBGET_USERNAME" ]]; then
-  #             break
-  #           fi
-  #           echo "Username cannot be blank"
-  #         done
-  #         local confirmPassword=""
-  #         while true; do
-  #           read -esp "NZBGET Password: " NZBGET_PASSWORD
-  #           echo
-  #           read -esp "Confirm Password: " confirmPassword
-  #           if [[ "$NZBGET_PASSWORD" == "$confirmPassword" ]]; then
-  #             break
-  #           fi
-  #           echo "Passwords do not match"
-  #         done
-  #         ;;
-  #   esac
-  # fi
-
-  docker-compose build --no-cache nzbget
-  docker-compose build --no-cache headphones
-  docker-compose up -d nzbget
-  docker-compose up -d headphones
-
-  echo "Headphones: http://<address>:8181"
-  echo "NzbGet: http://<address>:6789"
-
-	# wget -q --tries=10 --timeout=20 --spider http://google.com
-	# if [[ $? != 0 ]]; then
-	# 	echo "Internet connection is required"
-	# 	return 1
-	# fi
-  #
-	# install_dialog --and-curl
-  #
-	# mkdir -p /etc/nateflix
-	# if [[ -f /etc/nateflix/installed ]]; then
-	# 	dialog --backtitle "Nateflix" --title " Message " --msgbox "Nateflix is already installed" 5 40
-	# 	clear
-	# 	return 1
-	# fi
-  #
-	# if [[ "$DISTRO" == "redhat" && $(eval "$PACKAGE_CHECK epel-release" > /dev/null 2>&1; echo $?) != 0 ]]; then
-	# 	echo "Installing EPEL Repo"
-	# 	$INSTALLER install epel-release
-	# fi
-  #
-	# local username=$(dialog --stdout --ok-label "next" --backtitle $BACKTITLE --title " Install " --inputbox "Username for service account:" 8 40 "media")
-	# local plexUsername=""
-	# local plexPassword=""
-	# local plexToken=""
-	# local plexpass=""
-  #
-	# if [[ $(eval "$PACKAGE_CHECK plexmediaserver" > /dev/null 2>&1; echo $?) != 0 ]]; then
-	# 	while [[ -z $plexToken ]]; do
-	# 		while [[ -z $plexUsername ]]; do
-	# 			plexUsername=$(dialog --stdout --ok-label "next" --backtitle $BACKTITLE --title " Install " --inputbox "Plex Email/Username:" 8 40)
-	# 			clear
-	# 		done
-	# 		while [[ -z $plexPassword || -z $plexConfirm || $plexPassword != $plexConfirm ]]; do
-	# 			while [[ -z $plexPassword ]]; do
-	# 				plexPassword=$(dialog --stdout --insecure --ok-label "next" --backtitle $BACKTITLE --title " Install " --passwordbox "Plex Password:" 8 40)
-	# 				clear
-	# 			done
-	# 			while [[ -z $plexConfirm ]]; do
-	# 				plexConfirm=$(dialog --stdout --insecure --ok-label "next" --backtitle $BACKTITLE --title " Install " --passwordbox "Confirm Plex Password:" 8 40)
-	# 				clear
-	# 			done
-	# 			if [[ $plexPassword != $plexConfirm ]]; then
-	# 				plexPassword=""
-	# 				plexConfirm=""
-	# 				dialog --backtitle $BACKTITLE --title " Plex Authentication " --msgbox "Passwords do not match" 6 44
-	# 				clear
-	# 			fi
-	# 		done
-  #
-	# 		local authString="Authorization: Basic $(echo -n $plexUsername:$plexPassword|base64)"
-	# 		local result=$(curl --header "X-Plex-Client-Identifier: Nateflix" \
-	# 			 --header "X-Plex-Product: Nateflix Installation" \
-	# 			 --header "X-Plex-Version: V1" \
-	# 			 --header "$authString" \
-	# 			 -X POST https://plex.tv/users/sign_in.json 2> /dev/null)
-	# 		plexToken=$(echo $result | grep -ioe '"authToken":"[^"]*' | cut -c 14-)
-	# 		if [[ $(echo $result|grep -q plexpass;echo $?) == 0 ]]; then
-	# 			plexpass="?channel=plexpass&X-Plex-Token=$(echo $result | grep -ioe '"authToken":"[^"]*' | cut -c 14-)"
-	# 		fi
-  #
-	# 		if [[ -z $plexToken ]]; then
-	# 			plexUsername=""
-	# 			plexPassword=""
-	# 			plexConfirm=""
-	# 			dialog --backtitle $BACKTITLE --title " Plex Authentication " --msgbox "Invalid username or password" 6 44
-	# 			clear
-	# 		fi
-	# 	done
-	# fi
-
-
+    docker rmi --force $image_name
+    docker-compose build --no-cache $service
+    docker-compose rm -svf $service
+    docker-compose up -d $service
+  done
 }
 
 remove ()
 {
+  read -ep "Remove Nateflix, config files will not be removed [n]? " yn
+  case $yn in
+    [Yy]* )
+      ;;
+    *)
+      echo "Aborting installation"
+      exit 1
+      ;;
+  esac
+
+  source ./.env
   docker-compose down --rmi all -v --remove-orphans
+  rm -rf /usr/local/sbin/nateflix > /dev/null
+  rm -rf "${SCRIPT_DIR}" > /dev/null
+
+  echo
+  echo "Nateflix has been removed. Configuration data in ${CONFIG_DIR} was not removed"
+  echo
 }
 
 show_help ()
 {
 	local me=$(basename "$(test -L "$0" && readlink "$0" || echo "$0")")
 	echo "Utility to manage a Nateflix server. Written by Nathan Martini v1.0"
-	echo "usage: $me { backup <to_path> | restore <from_file> | install | remove | status | start | stop }"
+	echo "usage: $me { backup <to_path> | restore <from_file> | upgrade [service] | remove [service] | status [service] | start [service] | stop [service]}"
 	echo
 	echo "   backup    Backup Nateflix configuration to specified path"
 	echo "   restore   Restore Nateflix configuration from specified file"
-	echo "   start     Start all Nateflix services"
-	echo "   restart   Restart all Nateflix services"
-	echo "   stop      Stop all Nateflix services"
-	echo "   status    Display status of all Nateflix services"
-	echo "   install   Install Nateflix to the current server"
-	echo "   remove    Remove Nateflix from the current server"
+	echo "   start     Start all/specific Nateflix services"
+	echo "   restart   Restart all/specific Nateflix services"
+	echo "   stop      Stop all/specific Nateflix services"
+	echo "   status    Display status of all/specific Nateflix services"
+	echo "   upgrade   Upgrade all/specific Nateflix service"
+	echo "   remove    Uninstall Nateflix"
 	echo "   --help    This help information"
 	echo
 }
@@ -671,32 +377,27 @@ case "$1" in
 			exit 1
 		fi
 		restore $2
-		clear
 		exit $?;;
 
 	"stop")
 		control_services stop $2
-		#print_service_status $2
 		exit 0;;
 
 	"start")
 		control_services start $2
-		#print_service_status $2
 		exit 0;;
 
   "restart")
 		control_services restart $2
-		#print_service_status $2
 		exit 0;;
+
+  "upgrade")
+    upgrade_service $2
+    exit 0;;
 
 	"status")
-    #assert_installed
 		print_service_status $2
 		exit 0;;
-
-	"install")
-		install
-		exit $?;;
 
 	"remove")
 		remove

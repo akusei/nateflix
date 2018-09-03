@@ -1,25 +1,30 @@
 version: '3.7'
 
-services:
+sservices:
   portal:
     labels:
       - "traefik.frontend.rule=Host:portal.${DOMAIN}"
       - "traefik.port=8080"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
+      - "traefik.enable=true"
     container_name: portal
     restart: unless-stopped
     image: traefik:1.7-alpine
-    command: --api --docker
+    command: --configFile=/etc/traefik/config.toml
     ports:
       - "80:80"     # The HTTP port
-      - "8888:8080" # The Web UI (enabled by --api)
+      - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${CONFIG_DIR}/portal:/etc/traefik
     env_file:
       - .env
 
   nzbget:
     labels:
       - "traefik.frontend.rule=Host:newz.${DOMAIN}"
+      - "traefik.enable=true"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: nzbget
@@ -44,6 +49,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:watch.${DOMAIN}"
       - "traefik.port=32400"
+      - "traefik.enable=true"
     depends_on:
       - portal
     container_name: plex
@@ -61,6 +67,14 @@ services:
       - 32414:32414/udp
     expose:
       - 32400
+      - 3005
+      - 8324
+      - 32469
+      - 1900
+      - 32410
+      - 32412
+      - 32413
+      - 32414
     hostname: ${PLEX_HOSTNAME}
     environment:
       TZ: ${TZ}
@@ -78,6 +92,8 @@ services:
   plexstats:
     labels:
       - "traefik.frontend.rule=Host:stats.${DOMAIN}"
+      - "traefik.enable=true"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: plexstats
@@ -99,6 +115,7 @@ services:
   ombi:
     labels:
       - "traefik.frontend.rule=Host:request.${DOMAIN}"
+      - "traefik.enable=true"
     depends_on:
       - portal
     container_name: ombi
@@ -122,6 +139,8 @@ services:
   sonarr:
     labels:
       - "traefik.frontend.rule=Host:shows.${DOMAIN}"
+      - "traefik.enable=true"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: sonarr
@@ -146,6 +165,8 @@ services:
   radarr:
     labels:
       - "traefik.frontend.rule=Host:movies.${DOMAIN}"
+      - "traefik.enable=true"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: radarr
@@ -170,6 +191,8 @@ services:
   lidarr:
     labels:
       - "traefik.frontend.rule=Host:music.${DOMAIN}"
+      - "traefik.enable=true"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: lidarr
@@ -195,6 +218,8 @@ services:
     labels:
       - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
       - "traefik.port=8112"
+      - "traefik.enable=true"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: deluge

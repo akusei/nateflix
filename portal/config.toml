@@ -1,0 +1,33 @@
+debug = true
+
+logLevel = "INFO"
+defaultEntryPoints = ["https","http"]
+
+[entryPoints]
+  [entryPoints.http]
+  address = ":80"
+    # [entryPoints.http.redirect]
+    # entryPoint = "https"
+  [entryPoints.https]
+  address = ":443"
+  [entryPoints.https.tls]
+
+[retry]
+
+[api]
+entrypoint = "dashboard"
+
+[docker]
+endpoint = "unix:///var/run/docker.sock"
+domain = "nateflix.io"
+watch = true
+exposedByDefault = false
+
+# [acme]
+# email = "webmaster@nateflix.io"
+# storage = "cert.json"
+# entryPoint = "https"
+# onHostRule = true
+#
+# [acme.httpChallenge]
+# entryPoint = "http"

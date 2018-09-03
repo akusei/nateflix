@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# TODO: HEADPHONES_MUSIC_DIR
-
 LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
 
 if [[ $EUID -ne 0 ]]; then
@@ -163,8 +161,17 @@ gather_required_config()
   PLEX_CLAIM="not a real token"
   export PLEX_CLAIM
 
-  read -ep "VPN Username: " VPN_USERNAME
-  read -esp "VPN Password: " VPN_PASSWORD
+  echo "PORTAL CREDENTIALS"
+  read -ep "Portal Username: " PORTAL_USERNAME
+  PORTAL_PASSWORD=$(openssl passwd -apr1)
+  while [[ "$?" != "0" ]]; do
+    PORTAL_PASSWORD=$(openssl passwd -apr1)
+  done
+  #PORTAL_PASSWORD=$(echo "${PORTAL_PASSWORD}"|sed -e s/\\$/\\$\\$/g)
+  export PORTAL_CREDS="${PORTAL_USERNAME}:${PORTAL_PASSWORD}"
+
+  read -ep "PIA VPN Username: " VPN_USERNAME
+  read -esp "PIA VPN Password: " VPN_PASSWORD
   echo
   export VPN_USERNAME
   export VPN_PASSWORD
@@ -176,7 +183,7 @@ gather_required_config()
   echo
 
   DOMAIN=nateflix.io
-  DOMAIN=$(get_value "Nateflix domain name" $DOMAIN)
+  # DOMAIN=$(get_value "Nateflix domain name" $DOMAIN)
   export DOMAIN
 
   ADVERTISE_IP=192.168.1.147
@@ -184,63 +191,30 @@ gather_required_config()
   export ADVERTISE_IP
 
   INSTALL_DIR="/opt/nateflix"
-  INSTALL_DIR=$(get_value "Where do you want to install Nateflix" $INSTALL_DIR)
-  if [[ -d $INSTALL_DIR ]]; then
-    read -ep "Directory already exists, overwrite [n]? " yn
-    case $yn in
-      [Yy]* )
-        #rm -rf $INSTALL_DIR
-        ;;
-      *)
-        echo "Aborting installation"
-        exit 1
-        ;;
-    esac
-  fi
-  if [[ $(mkdir -p $INSTALL_DIR > /dev/null 2>&1; echo $?) == 0 ]]; then
-    rm -rf $INSTALL_DIR
-  else
-    echo "Could not create destination directory"
-    exit 1
-  fi
+  # INSTALL_DIR=$(get_value "Where do you want to install Nateflix" $INSTALL_DIR)
+  # if [[ -d $INSTALL_DIR ]]; then
+  #   read -ep "Directory already exists, overwrite [n]? " yn
+  #   case $yn in
+  #     [Yy]* )
+  #       #rm -rf $INSTALL_DIR
+  #       ;;
+  #     *)
+  #       echo "Aborting installation"
+  #       exit 1
+  #       ;;
+  #   esac
+  # fi
+  # if [[ $(mkdir -p $INSTALL_DIR > /dev/null 2>&1; echo $?) == 0 ]]; then
+  #   rm -rf $INSTALL_DIR
+  # else
+  #   echo "Could not create destination directory"
+  #   exit 1
+  # fi
   export INSTALL_DIR
 
   MEDIA_ROOT=/mnt/media
   MEDIA_ROOT=$(get_value "Root location of media library" $MEDIA_ROOT)
   export MEDIA_ROOT
-
-  echo
-
-  read -ep "Do you want NZBGet to use a password [n]? " yn
-  case $yn in
-    [Yy]* )
-      read -ep "NZBGet Username: " NZBGET_USERNAME
-      read -esp "NZBGet Password: " NZBGET_PASSWORD
-      echo
-      ;;
-  esac
-  export NZBGET_USERNAME
-  export NZBGET_PASSWORD
-
-  read -ep "Do you want Deluge to use a password [n]? " yn
-  case $yn in
-    [Yy]* )
-      read -ep "Deluge Username: " DELUGE_USERNAME
-      read -esp "Deluge Password: " DELUGE_PASSWORD
-      echo
-      ;;
-  esac
-  export DELUGE_USERNAME
-  export DELUGE_PASSWORD
-
-  read -ep "Do you want Deluge Web Interface to use a password [n]? " yn
-  case $yn in
-    [Yy]* )
-      read -esp "Deluge Web Password: " DELUGEWEB_PASSWORD
-      echo
-      ;;
-  esac
-  export DELUGEWEB_PASSWORD
 
   TZ=$(date +%Z)
   export TZ
@@ -258,14 +232,14 @@ install_docker()
   echo Installing Docker
   if [[ "$DISTRO" == "debian" ]]; then
     apt-get update -qq
-    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3
+    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync
     curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
     add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
     apt-get update -qq
     apt-get install -qq -y docker-ce
   elif [[ "$DISTRO" == "ubuntu " ]]; then
     apt-get update -qq
-    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3
+    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
     add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
     apt-get update -qq
@@ -275,7 +249,7 @@ install_docker()
     yum remove docker docker-client docker-client-latest docker-common docker-latest \
                docker-latest-logrotate docker-logrotate docker-selinux \
                docker-engine-selinux docker-engine
-    yum install -y yum-utils device-mapper-persistent-data lvm2 sqlite3
+    yum install -y yum-utils device-mapper-persistent-data lvm2 sqlite3 rsync
     yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
     yum install docker-ce
     systemctl start docker
@@ -286,7 +260,7 @@ install_docker()
                docker-engine
     dnf -y install dnf-plugins-core
     dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-    dnf install docker-ce sqlite3
+    dnf install docker-ce sqlite3 rsync
     systemctl start docker
   fi
 
@@ -316,10 +290,16 @@ install()
   echo "Creating directories"
   mkdir -p $INSTALL_DIR
   mkdir -p $MEDIA_ROOT
+  mkdir -p $CONFIG_DIR/portal
 
   echo "Copying files"
   cp -Rv $WORKING_DIR/. $INSTALL_DIR >> $LOG_FILE
   touch $INSTALL_DIR/.env
+
+  cp $INSTALL_DIR/portal/config.toml $CONFIG_DIR/portal
+  echo ${PORTAL_CREDS} > $CONFIG_DIR/portal/users
+
+  ln -s $INSTALL_DIR/nateflix /usr/local/sbin/nateflix
 
   cd $INSTALL_DIR
   build_and_configure
@@ -371,8 +351,8 @@ configure_lidarr()
   sqlite3 $dbFile "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('copyusinghardlinks', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
-  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"${NZBGET_USERNAME}\",\"password\":\"${NZBGET_PASSWORD}\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
-  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'deluge','Deluge','{\"host\":\"deluge\",\"port\":8112,\"username\":\"${DELUGE_USERNAME}\",\"password\":\"${DELUGE_PASSWORD}\",\"musicCategory\":\"lidarr\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','DelugeSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'deluge','Deluge','{\"host\":\"deluge\",\"port\":8112,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"lidarr\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnAlbumDownload) values ('plex',0,1,'{\"host\":\"plex\",\"port\":32400,\"username\":\"${PLEX_USERNAME}\",\"password\":\"${PLEX_PASSWORD}\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1)"
   sed -i -e "s/<\/Config>/<LaunchBrowser>False<\/LaunchBrowser>\n<\/Config>/" $CONFIG_DIR/lidarr/config.xml
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/lidarr/config.xml
@@ -406,7 +386,6 @@ configure_plex()
   fi
 
   docker-compose up -d plex
-  # check_if_running 'http://localhost:32400' 401 "web/index" 500
   check_if_running 'http://localhost:32400/web/index.html' 200 "Plex" 500
   docker-compose stop plex
 }
@@ -430,9 +409,15 @@ configure_nzbget()
   check_if_running 'http://localhost:6789' 401 '' 10
   docker-compose stop nzbget
 
-  #nzbget config
-  sed -i -e "s/^\(ControlUsername\).\+$/\1=${NZBGET_USERNAME}/g" $configFile
-  sed -i -e "s/^\(ControlPassword\).\+$/\1=${NZBGET_PASSWORD}/g" $configFile
+  sed -i -e "s/^\(ControlUsername\).\+$/\1=/g" $configFile
+  sed -i -e "s/^\(ControlPassword\).\+$/\1=/g" $configFile
+}
+
+make_api_call()
+{
+  curl -Ls -H 'Content-Type: application/json' \
+       -H "ApiKey: $1" \
+       -d "$3" "http://localhost:5000/api/v1/$2"
 }
 
 configure_ombi()
@@ -452,21 +437,84 @@ configure_ombi()
   docker-compose up -d ombi
   check_if_running 'http://localhost:5000' 200 'Ombi'
 
-#   local apiKey=$(grep -aioe '"ApiKey":"[^"]*' ${CONFIG_DIR}/ombi/Ombi.db | cut -c 11-)
-#
-#   local data=$(cat <<- EOD
-# {"baseUrl": "/",
-#  "collectAnalyticData": false,
-#  "wizard": false,
-#  "apiKey": "${apiKey}",
-#  "ignoreCertificateErrors": true,
-#  "doNotSendNotificationsForAutoApprove": true
-#  "hideRequestsUsers": true,
-#  "id": 0}
+  local apiKey=$(grep -aioe '"ApiKey":"[^"]*' ${CONFIG_DIR}/ombi/Ombi.db | cut -c 11-)
+  local sonarrKey=$(cat ${CONFIG_DIR}/sonarr/config.xml | grep -aioe "<ApiKey>[^<]*" | cut -c 9-)
+  local radarrKey=$(cat ${CONFIG_DIR}/radarr/config.xml | grep -aioe "<ApiKey>[^<]*" | cut -c 9-)
+
+  make_api_call "${apiKey}" "Issues/categories" '{"value":"Shows"}'
+  make_api_call "${apiKey}" "Issues/categories" '{"value":"Movies"}'
+  make_api_call "${apiKey}" "Issues/categories" '{"value":"Foreign Movies"}'
+  make_api_call "${apiKey}" "Issues/categories" '{"value":"Anime Movies"}'
+  make_api_call "${apiKey}" "Issues/categories" '{"value":"Anime Shows"}'
+
+  make_api_call "${apiKey}" "Settings/customization" '{"applicationName":"Nateflix","applicationUrl":"https://request.nateflix.io"}'
+  make_api_call "${apiKey}" "Settings/Issues" '{"enabled":true,"enableInProgress":true}'
+  make_api_call "${apiKey}" "Settings/authentication" '{"allowNoPassword":false,"enableOAuth":true}'
+
+  local data=$(cat <<- EOD
+  {"enabled": true,
+  "apiKey": "${sonarrKey}",
+  "qualityProfile": "6",
+  "seasonFolders": true,
+  "qualityProfileAnime": "6",
+  "addOnly": false,
+  "ssl": false,
+  "ip": "sonarr",
+  "port": 8989}
+EOD
+)
+  make_api_call "${apiKey}" "Settings/sonarr" "${data}"
+
+  data=$(cat <<- EOD
+  {"enabled": true,
+  "apiKey": "${radarrKey}",
+  "defaultQualityProfile": "6",
+  "addOnly": false,
+  "minimumAvailability": "Released",
+  "ssl": false,
+  "ip": "radarr",
+  "port": 7878}
+EOD
+)
+  make_api_call "${apiKey}" "Settings/radarr" "${data}"
+
+#   data=$(cat <<- EOD
+#   {
+#     "enable": true,
+#     "installId": "string",
+#     "servers": [
+#       {
+#         "name": "Nateflix",
+#         "episodeBatchSize": 0,
+#         "ssl": true,
+#         "ip": "plex",
+#         "port": 32400
+#       }
+#     ]
+#   }
 # EOD
 # )
-#
-#   curl -Lv -H 'Content-Type: application/json' -H "ApiKey: ${apiKey}" -d "${data}" http://localhost:5000/api/v1/Settings/ombi
+
+#   data=$(cat <<- EOD
+#   {
+#     "enable": true,
+#     "servers": [
+#       {
+#         "name": "Nateflix",
+#         "plexSelectedLibraries": [
+#           {
+#             "enabled": true
+#           }
+#         ],
+#         "ssl": true,
+#         "ip": "plex",
+#         "port": 32400
+#       }
+#     ]
+#   }
+# EOD
+# )
+#   make_api_call "${apiKey}" "Settings/plex" "${data}"
 
   docker-compose stop ombi
 }
@@ -492,11 +540,10 @@ configure_sonarr()
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
-  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
-  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"\", \"password\": \"\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
-  # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/sonarr<\/UrlBase>/" $CONFIG_DIR/sonarr/config.xml
   sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/sonarr/config.xml
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/sonarr/config.xml
 }
@@ -522,11 +569,10 @@ configure_radarr()
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
-  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"${NZBGET_USERNAME}\", \"password\": \"${NZBGET_PASSWORD}\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
-  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"${DELUGEWEB_PASSWORD}\", \"tvCategory\": \"radarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"\", \"password\": \"\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
+  sqlite3 $dbFile "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"\", \"tvCategory\": \"radarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 $dbFile "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 $dbFile "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,ReplaceIllegalCharacters,StandardMovieFormat,MovieFolderFormat,ColonReplacementFormat) values (0,1,1,'{Movie Title} {Release Year} {Quality Title}','{Movie Title} ({Release Year})',1)"
-  # sed -i -e "s/<UrlBase><\/UrlBase>/<UrlBase>\/radarr<\/UrlBase>/" $CONFIG_DIR/radarr/config.xml
   sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" $CONFIG_DIR/radarr/config.xml
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" $CONFIG_DIR/radarr/config.xml
 }
@@ -584,16 +630,10 @@ configure_deluge()
 
   echo ${VPN_USERNAME} > ${CONFIG_DIR}/openvpn/auth.txt
   echo ${VPN_PASSWORD} >> ${CONFIG_DIR}/openvpn/auth.txt
+  echo "::10" > ${CONFIG_DIR}/deluge/auth
 
-  echo "${DELUGE_USERNAME}:${DELUGE_PASSWORD}:10" > ${CONFIG_DIR}/deluge/auth
-
-  local salt=$(head -c 20 /dev/random | sha1sum | cut -d ' ' -f 1)
-  local passHash=$(echo -n "${salt}${DELUGEWEB_PASSWORD}" | sha1sum | cut -d ' ' -f 1)
-
-  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${passHash}\\2/g" ${CONFIG_DIR}/deluge/core.conf
-
-  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${passHash}\\2/g" ${CONFIG_DIR}/deluge-web/web.conf
-  sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1${salt}\\2/g" ${CONFIG_DIR}/deluge-web/web.conf
+  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1\\2/g" ${CONFIG_DIR}/deluge-web/web.conf
+  sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1\\2/g" ${CONFIG_DIR}/deluge-web/web.conf
 }
 
 build_and_configure()
@@ -614,9 +654,9 @@ build_and_configure()
   configure_plex
   configure_nzbget
   configure_lidarr
-  configure_ombi
   configure_sonarr
   configure_radarr
+  configure_ombi
   configure_plexstats
   configure_deluge
 }
