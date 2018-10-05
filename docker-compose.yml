@@ -1,6 +1,6 @@
 version: '3.7'
 
-sservices:
+services:
   portal:
     labels:
       - "traefik.frontend.rule=Host:portal.${DOMAIN}"
