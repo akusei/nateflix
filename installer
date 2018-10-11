@@ -9,6 +9,11 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+if [[ -z "$(which curl)" ]]; then
+  echo "Curl is required for this script to run properly"
+  exit 1
+fi
+
 get_var()
 {
   source $2
@@ -242,7 +247,7 @@ install_docker()
     apt-get update -qq
     apt-get upgrade -qq -y docker-ce
     systemctl start docker
-  elif [[ "$DISTRO" == "ubuntu " ]]; then
+  elif [[ "$DISTRO" == "ubuntu" ]]; then
     apt-get remove docker docker-engine docker.io
     apt-get update -qq
     apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync
