@@ -14,6 +14,15 @@ if [[ -z "$(which curl)" ]]; then
   exit 1
 fi
 
+log()
+{
+  local timestamp=$(date +%Y-%m-%d %H:%M:%S)
+  echo "${timestamp} [${1}] ${2}" >> "${LOG_FILE}"
+  if [[ $3 == 1 ]]; then
+    echo "${2}"
+  fi
+}
+
 get_var()
 {
   source $2
@@ -111,7 +120,7 @@ check_if_running()
 extract()
 {
   local archive=$(awk '/^__ARCHIVE__/ {print NR + 1; exit 0; }' "${0}")
-  tail -n+${archive} "${0}" | tar xpJv -C $1 >> $LOG_FILE
+  tail -n+${archive} "${0}" | tar xpJv -C $1 >> $LOG_FILE 2>&1
 }
 
 get_value()
@@ -138,6 +147,7 @@ gather_required_config()
   PLEX_HOSTNAME=Nateflix
   export PLEX_HOSTNAME
 
+  log "INFO" "Gathering credentials..."
   read -ep "Plex username: " PLEX_USERNAME
   read -esp "Plex password: " PLEX_PASSWORD
   echo
@@ -155,11 +165,11 @@ gather_required_config()
           -X POST https://plex.tv/users/sign_in.json)
   local re="^\{\"error\":\"(.+)\"\}$"
   if [[ $result =~ $re ]]; then
-    echo "Login failed: ${BASH_REMATCH[1]}"
+    log "ERROR" "Login failed: ${BASH_REMATCH[1]}" 1
     exit 1
   fi
   if [[ $result != *"{\"user\":"* ]]; then
-    echo "Login failed: Unexpected result"
+    log "ERROR" "Login failed: Unexpected result" 1
     exit 1
   fi
 
@@ -236,55 +246,71 @@ install_docker()
   echo "**************************"
   echo
 
-  echo Installing Docker
   if [[ "$DISTRO" == "debian" ]]; then
-    apt-get remove docker docker-engine docker.io
+    log "INFO" "Removing old docker..." 1
+    apt-get remove -y -q docker docker-engine docker.io >> $LOG_FILE 2>&1
+    log "INFO" "Installing dependencies" 1
     apt-get update -qq
-    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync
-    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
-    add-apt-repository --remove "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+    apt-get install -q -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync >> $LOG_FILE 2>&1
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add - >> $LOG_FILE 2>&1
+    log "INFO" "Installing Docker" 1
+    add-apt-repository --remove "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" >> $LOG_FILE 2>&1
+    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" >> $LOG_FILE 2>&1
     apt-get update -qq
-    apt-get upgrade -qq -y docker-ce
-    systemctl start docker
+    apt-get upgrade -q -y docker-ce >> $LOG_FILE 2>&1
+    log "INFO" "Starting docker daemon" 1
+    systemctl start docker >> $LOG_FILE 2>&1
   elif [[ "$DISTRO" == "ubuntu" ]]; then
-    apt-get remove docker docker-engine docker.io
+    log "INFO" "Removing old docker..." 1
+    apt-get remove -y -q docker docker-engine docker.io >> $LOG_FILE 2>&1
+    log "INFO" "Installing dependencies" 1
     apt-get update -qq
-    apt-get install -qq -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-    add-apt-repository --remove "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable"
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable"
+    apt-get install -q -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync >> $LOG_FILE 2>&1
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add - >> $LOG_FILE 2>&1
+    log "INFO" "Installing Docker" 1
+    add-apt-repository --remove "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable" >> $LOG_FILE 2>&1
+    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable" >> $LOG_FILE 2>&1
     apt-get update -qq
-    apt-get upgrade -qq -y docker-ce
-    systemctl start docker
+    apt-get upgrade -q -y docker-ce >> $LOG_FILE 2>&1
+    log "INFO" "Starting docker daemon" 1
+    systemctl start docker >> $LOG_FILE 2>&1
   elif [[ "$DISTRO" == "centos" ]]; then
+    log "INFO" "Removing old docker..." 1
     yum remove docker docker-client docker-client-latest docker-common docker-latest \
                docker-latest-logrotate docker-logrotate docker-selinux \
-               docker-engine-selinux docker-engine docker-ce
+               docker-engine-selinux docker-engine docker-ce >> $LOG_FILE 2>&1
+    log "INFO" "Installing dependencies" 1
     yum update
-    yum install -y yum-utils device-mapper-persistent-data lvm2 sqlite3 rsync
-    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    yum install docker-ce
-    systemctl start docker
+    yum install -y yum-utils device-mapper-persistent-data lvm2 sqlite3 rsync >> $LOG_FILE 2>&1
+    log "INFO" "Installing Docker" 1
+    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo >> $LOG_FILE 2>&1
+    yum install docker-ce >> $LOG_FILE 2>&1
+    log "INFO" "Starting docker daemon" 1
+    systemctl start docker >> $LOG_FILE 2>&1
   elif [[ "$DISTRO" == "fedora" ]]; then
+    log "INFO" "Removing old docker..." 1
     dnf remove docker docker-client docker-client-latest docker-common docker-latest \
                docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux \
-               docker-engine docker-ce
+               docker-engine docker-ce >> $LOG_FILE 2>&1
+    log "INFO" "Installing dependencies" 1
     dnf update
-    dnf -y install dnf-plugins-core
-    dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-    dnf install docker-ce sqlite3 rsync
-    systemctl start docker
+    dnf -y install dnf-plugins-core >> $LOG_FILE 2>&1
+    dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo >> $LOG_FILE 2>&1
+    log "INFO" "Installing Docker" 1
+    dnf install docker-ce sqlite3 rsync >> $LOG_FILE 2>&1
+    log "INFO" "Starting docker daemon" 1
+    systemctl start docker >> $LOG_FILE 2>&1
   fi
 
-  echo Installing/Updating Docker-Compose
   # Docker compose
   if [[ ! -z "$(which docker-compose)" ]]; then
+    log "INFO" "Removing old docker-compose"
     rm -rf "$(which docker-compose)"
   fi
 
+  log "INFO" "Installing/Updating Docker-Compose" 1
   url=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep browser_download_url | grep Linux-x86_64[^.] | cut -d '"' -f 4)
-  curl -L $url -o /usr/local/bin/docker-compose
+  curl -L $url -o /usr/local/bin/docker-compose >> $LOG_FILE 2>&1
   chmod +x /usr/local/bin/docker-compose
 }
 
@@ -300,16 +326,16 @@ install()
   echo "**************************"
   echo
 
-  echo "Extracting files"
+  log "INFO" "Extracting files" 1
   extract $WORKING_DIR
 
-  echo "Creating directories"
+  log "INFO" "Creating directories" 1
   mkdir -p $INSTALL_DIR
   mkdir -p $MEDIA_ROOT
   mkdir -p $CONFIG_DIR/portal
 
-  echo "Copying files"
-  cp -Rv $WORKING_DIR/. $INSTALL_DIR >> $LOG_FILE
+  log "INFO" "Copying files" 1
+  cp -Rv $WORKING_DIR/. $INSTALL_DIR >> $LOG_FILE 2>&1
   touch $INSTALL_DIR/.env
 
   cp $INSTALL_DIR/portal/config.toml $CONFIG_DIR/portal
@@ -356,15 +382,16 @@ configure_lidarr()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Lidarr"
   local dbFile=$CONFIG_DIR/lidarr/lidarr.db
   if [[ -f $dbFile ]]; then
-    echo "Lidarr already configured; skipping..."
+    log "INFO" "Lidarr already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d lidarr
+  docker-compose up -d lidarr | tee -a $LOG_FILE
   check_if_running 'http://localhost:8686' 200 'Lidarr' 30
-  docker-compose stop lidarr
+  docker-compose stop lidarr | tee -a $LOG_FILE
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('autounmonitorpreviouslydownloadedtracks', 'True')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
@@ -386,12 +413,13 @@ configure_plex()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Plex"
   if [[ -f "${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Preferences.xml" ]]; then
-    echo "Plex already configured; skipping..."
+    log "INFO" "Plex already configured; skipping..." 1
     return
   fi
 
-  echo "Getting Plex claim token"
+  log "INFO" "Getting Plex claim token" 1
   local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
           --header "X-Plex-Product: Nateflix Installation" \
           --header "X-Plex-Token: ${PLEX_TOKEN}" \
@@ -404,9 +432,9 @@ configure_plex()
     exit 1;
   fi
 
-  docker-compose up -d plex
+  docker-compose up -d plex | tee -a $LOG_FILE
   check_if_running 'http://localhost:32400/web/index.html' 200 "Plex" 500
-  docker-compose stop plex
+  docker-compose stop plex | tee -a $LOG_FILE
 }
 
 configure_nzbget()
@@ -418,15 +446,16 @@ configure_nzbget()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring NzbGet"
   local configFile=$CONFIG_DIR/nzbget/config/nzbget.conf
   if [[ -f $configFile ]]; then
-    echo "NzbGet already configured; skipping..."
+    log "INFO" "NzbGet already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d nzbget
+  docker-compose up -d nzbget | tee -a $LOG_FILE
   check_if_running 'http://localhost:6789' 401 '' 10
-  docker-compose stop nzbget
+  docker-compose stop nzbget | tee -a $LOG_FILE
 
   sed -i -e "s/^\(ControlUsername\).\+$/\1=/g" $configFile
   sed -i -e "s/^\(ControlPassword\).\+$/\1=/g" $configFile
@@ -448,12 +477,13 @@ configure_ombi()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring OMBI"
   if [[ -f ${CONFIG_DIR}/ombi/Ombi.db ]]; then
-    echo "OMBI already configured; skipping..."
+    log "INFO" "OMBI already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d ombi
+  docker-compose up -d ombi | tee -a $LOG_FILE
   check_if_running 'http://localhost:5000' 200 'Ombi'
 
   local apiKey=$(grep -aioe '"ApiKey":"[^"]*' ${CONFIG_DIR}/ombi/Ombi.db | cut -c 11-)
@@ -535,7 +565,7 @@ EOD
 # )
 #   make_api_call "${apiKey}" "Settings/plex" "${data}"
 
-  docker-compose stop ombi
+  docker-compose stop ombi | tee -a $LOG_FILE
 }
 
 configure_sonarr()
@@ -547,15 +577,16 @@ configure_sonarr()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Sonarr"
   local dbFile=$CONFIG_DIR/sonarr/nzbdrone.db
   if [[ -f $dbFile ]]; then
-    echo "Sonarr already configured; skipping..."
+    log "INFO" "Sonarr already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d sonarr
+  docker-compose up -d sonarr | tee -a $LOG_FILE
   check_if_running 'http://localhost:8989' 200 'Sonarr'
-  docker-compose stop sonarr
+  docker-compose stop sonarr | tee -a $LOG_FILE
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
@@ -576,15 +607,16 @@ configure_radarr()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Radarr"
   local dbFile=$CONFIG_DIR/radarr/nzbdrone.db
   if [[ -f $dbFile ]]; then
-    echo "Radarr already configured; skipping..."
+    log "INFO" "Radarr already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d radarr
+  docker-compose up -d radarr | tee -a $LOG_FILE
   check_if_running 'http://localhost:7878' 200 'Radarr'
-  docker-compose stop radarr
+  docker-compose stop radarr | tee -a $LOG_FILE
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
@@ -605,15 +637,16 @@ configure_plexstats()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Plex Stats"
   local configFile=$CONFIG_DIR/plexstats/config.ini
   if [[ -f $configFile ]]; then
-    echo "Plex Stats already configured; skipping..."
+    log "INFO" "Plex Stats already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d plexstats >> $LOG_FILE
+  docker-compose up -d plexstats | tee -a $LOG_FILE
   check_if_running 'http://localhost:8181' 200 'Tautulli - Welcome' 500
-  docker-compose stop plexstats
+  docker-compose stop plexstats | tee -a $LOG_FILE
 
   sed -i -e "s/^\(pms_url\) =.\+$/\1 = http:\/\/plex:32400/g" $configFile
   sed -i -e "s/^\(pms_name\) =.\+$/\1 = ${PLEX_HOSTNAME}/g" $configFile
@@ -635,17 +668,18 @@ configure_deluge()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Deluge"
   if [[ -f ${CONFIG_DIR}/deluge/core.conf && -f  ${CONFIG_DIR}/deluge-web/web.conf ]]; then
-    echo "Deluge already configured; skipping..."
+    log "INFO" "Deluge already configured; skipping..." 1
     return
   fi
 
-  docker-compose up -d deluge
+  docker-compose up -d deluge | tee -a $LOG_FILE
   check_if_running 'http://localhost:8112' 200 'Deluge'
   while [[ ! -f ${CONFIG_DIR}/deluge/auth ]]; do
     sleep 1s
   done
-  docker-compose stop deluge
+  docker-compose stop deluge | tee -a $LOG_FILE
 
   echo ${VPN_USERNAME} > ${CONFIG_DIR}/openvpn/auth.txt
   echo ${VPN_PASSWORD} >> ${CONFIG_DIR}/openvpn/auth.txt
@@ -664,7 +698,7 @@ build_and_configure()
   echo "**************************"
   echo
 
-  docker-compose build --no-cache >> $LOG_FILE
+  docker-compose build --no-cache | tee -a $LOG_FILE
   if [[ "$?" -gt 0 ]]; then
     echo "Error building images check log file ${LOG_FILE} for details"
     exit $?
