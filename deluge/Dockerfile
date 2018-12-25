@@ -1,4 +1,4 @@
-FROM python:3.7.0-alpine3.8
+FROM python:3.7.1-alpine3.8
 
 
 # ADD REPO AND UPDATE
@@ -7,7 +7,7 @@ RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/re
 		apk update
 
 # INSTALL DELUGE
-RUN apk add py-pip boost-system@edge boost-python@edge deluge@testing && \
+RUN apk add py-pip boost-system@edge boost-python@edge libssl1.1@edge deluge@testing && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
 		pip2 install incremental constantly packaging automat service_identity && \
