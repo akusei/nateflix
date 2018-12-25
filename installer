@@ -4,19 +4,43 @@
 
 LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
 
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root"
-   exit 1
-fi
+check_ports()
+{
+  # doing it this way now because netstat is not bundled with linux anymore
+  # and I want to avoid installing yet another package
+  # local ports=/80/443/6789/32400/3005/8324/32469/1900/32410/32412/32413/32414/8181/5000/8989/7878/8686/8112/58846/
+  # local files="/proc/net/tcp /proc/net/tcp6 /proc/net/raw /proc/net/udp /proc/net/udp6"
+  # local openPorts=$(cat ${files} | grep -v "local_address" | awk '{ print $2 }' | cut -d ':' -f 2 | sort -u)
+  # local used=''
+  #
+  # for port in $openPorts; do
+  #   local p=$((0x${port}))
+  #   if [[ $(echo $ports | grep -q "/${port}/") != 0 ]]; then
+  #     used="${used},${p}"
+  #   fi
+  # done
 
-if [[ -z "$(which curl)" ]]; then
-  echo "Curl is required for this script to run properly"
-  exit 1
-fi
+  local ports="80 443 6789 32400 3005 8324 32469 1900 32410 32412 32413 32414 8181 5000 8989 7878 8686 8112 58846"
+  local used=''
+
+  for port in $ports; do
+    local result=$(lsof -Pi :${port} | tail -n +2 | grep -v "ESTABLISHED" | tail -n 1)
+    if [[ ! -z $result ]]; then
+      used="${used},$(echo ${result}|cut -d ' ' -f 1):${port}"
+    fi
+  done
+
+  if [[ ! -z "${used}" ]]; then
+    used=$(echo $used | cut -d ',' -f 2-)
+    echo "Required ports are already in use (${used})"
+    echo "These ports are required, please stop any services associated with these ports"
+    exit 1
+  fi
+}
 
 log()
 {
-  local timestamp=$(date +%Y-%m-%d %H:%M:%S)
+  local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
   echo "${timestamp} [${1}] ${2}" >> "${LOG_FILE}"
   if [[ $3 == 1 ]]; then
     echo "${2}"
@@ -61,29 +85,35 @@ version_compare()
     return 0
 }
 
-DISTRO=$(get_var ID /etc/os-release)
-VERSION=$(get_var VERSION_ID /etc/os-release)
+check_distro()
+{
+  export DISTRO=$(get_var ID /etc/os-release)
+  export VERSION=$(get_var VERSION_ID /etc/os-release)
 
-if [[ -z $DISTRO || $(uname -p) != "x86_64" ]]; then
-	echo "This distro/architecture is not supported"
-	exit 1
-fi
+  if [[ -z $DISTRO ]]; then
+    echo "Unable to determine linux distro"
+    exit 1
+  fi
 
-if [[ "$DISTRO" == "debian" && $(version_compare $VERSION "7.6"; echo $?) != 1 ]]; then
-  echo "Requires Debian 7.7 or higher"
-  exit 1
-elif [[ "$DISTRO" == "ubuntu" && $(version_compare $VERSION "14.03"; echo $?) != 1 ]]; then
-  echo "Requires Ubuntu 14.04 or higher"
-  exit 1
-elif [[ "$DISTRO" == "centos" && $(version_compare $VERSION "6"; echo $?) != 1 ]]; then
-  echo "Requires CentOS 7 or higher"
-  exit 1
-elif [[ "$DISTRO" == "fedora" && $(version_compare $VERSION "25"; echo $?) != 1 ]]; then
-  echo "Requires Fedora 26 or higher"
-  exit 1
-fi
+  if [[ $(uname -m) != "x86_64" ]]; then
+  	echo "This architecture is not supported ($(uname -m))"
+  	exit 1
+  fi
 
-WORKING_DIR=$(mktemp -d)
+  if [[ "$DISTRO" == "debian" && $(version_compare $VERSION "7.6"; echo $?) != 1 ]]; then
+    echo "Requires Debian 7.7 or higher"
+    exit 1
+  elif [[ "$DISTRO" == "ubuntu" && $(version_compare $VERSION "14.03"; echo $?) != 1 ]]; then
+    echo "Requires Ubuntu 14.04 or higher"
+    exit 1
+  elif [[ "$DISTRO" == "centos" && $(version_compare $VERSION "6"; echo $?) != 1 ]]; then
+    echo "Requires CentOS 7 or higher"
+    exit 1
+  elif [[ "$DISTRO" == "fedora" && $(version_compare $VERSION "25"; echo $?) != 1 ]]; then
+    echo "Requires Fedora 26 or higher"
+    exit 1
+  fi
+}
 
 cleanup()
 {
@@ -91,8 +121,6 @@ cleanup()
     rm -rf $1
   fi
 }
-
-trap "cleanup $WORKING_DIR" EXIT
 
 check_if_running()
 {
@@ -131,6 +159,55 @@ get_value()
     else
       echo $2
     fi
+}
+
+install_dependencies()
+{
+  if [[ $(hash docker 2>/dev/null; echo $?) != 0 ]]; then
+    echo "docker is not installed"
+    echo "please install the latest version of docker"
+    echo "https://docs.docker.com/install/linux/docker-ce/${DISTRO}/"
+    exit 1
+  fi
+
+  if [[ $(hash docker-compose 2>/dev/null; echo $?) != 0 ]]; then
+    echo "docker-compose is not installed"
+    echo "please install the latest version of docker compose"
+    echo "https://docs.docker.com/compose/install/"
+    exit 1
+  fi
+
+  local dockerVersion=$(docker --version|cut -d ' ' -f 3|cut -d ',' -f 1)
+  local dcVersion=$(docker-compose --version|cut -d ' ' -f 3|cut -d ',' -f 1)
+  if [[ $(version_compare $dockerVersion "18.09.0"; echo $?) == 2 ]]; then
+    echo "Your docker version (${dockerVersion}) is not supported"
+    echo "Version >= 18.09.0 is required"
+    echo "Please update your docker https://docs.docker.com/install/linux/docker-ce/${DISTRO}/"
+    exit 1
+  fi
+
+  if [[ $(version_compare $dcVersion "1.23.2"; echo $?) == 2 ]]; then
+    echo "Your docker-compose version (${dcVersion}) is not supported"
+    echo "Version >= 1.23.2 is required"
+    echo "Please update your docker-compose https://docs.docker.com/compose/install/"
+    exit 1
+  fi
+
+  local packageUpdate='apt-get -qq update'
+  local packageInstall='apt-get -qq -y install'
+  if [[ "${DISTRO}" == "centos" ]]; then
+    packageUpdate=''
+    packageInstall='yum install -y'
+  elif [[ "${DISTRO}" == "fedora" ]]; then
+    packageUpdate=''
+    packageInstall='dnf -y install'
+  fi
+
+  echo "Installing dependencies..."
+  ${packageUpdate}
+  ${packageInstall} rsync sqlite3 curl >> $LOG_FILE 2>&1
+
+  systemctl start docker
 }
 
 gather_required_config()
@@ -237,87 +314,10 @@ gather_required_config()
   export TZ
 }
 
-install_docker()
-{
-  echo
-  echo
-  echo "**************************"
-  echo "*   INSTALLING DOCKER    *"
-  echo "**************************"
-  echo
-
-  if [[ "$DISTRO" == "debian" ]]; then
-    log "INFO" "Removing old docker..." 1
-    apt-get remove -y -q docker docker-engine docker.io >> $LOG_FILE 2>&1
-    log "INFO" "Installing dependencies" 1
-    apt-get update -qq
-    apt-get install -q -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync >> $LOG_FILE 2>&1
-    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add - >> $LOG_FILE 2>&1
-    log "INFO" "Installing Docker" 1
-    add-apt-repository --remove "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" >> $LOG_FILE 2>&1
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" >> $LOG_FILE 2>&1
-    apt-get update -qq
-    apt-get upgrade -q -y docker-ce >> $LOG_FILE 2>&1
-    log "INFO" "Starting docker daemon" 1
-    systemctl start docker >> $LOG_FILE 2>&1
-  elif [[ "$DISTRO" == "ubuntu" ]]; then
-    log "INFO" "Removing old docker..." 1
-    apt-get remove -y -q docker docker-engine docker.io >> $LOG_FILE 2>&1
-    log "INFO" "Installing dependencies" 1
-    apt-get update -qq
-    apt-get install -q -y apt-transport-https ca-certificates curl gnupg2 software-properties-common sqlite3 rsync >> $LOG_FILE 2>&1
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add - >> $LOG_FILE 2>&1
-    log "INFO" "Installing Docker" 1
-    add-apt-repository --remove "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable" >> $LOG_FILE 2>&1
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable" >> $LOG_FILE 2>&1
-    apt-get update -qq
-    apt-get upgrade -q -y docker-ce >> $LOG_FILE 2>&1
-    log "INFO" "Starting docker daemon" 1
-    systemctl start docker >> $LOG_FILE 2>&1
-  elif [[ "$DISTRO" == "centos" ]]; then
-    log "INFO" "Removing old docker..." 1
-    yum remove docker docker-client docker-client-latest docker-common docker-latest \
-               docker-latest-logrotate docker-logrotate docker-selinux \
-               docker-engine-selinux docker-engine docker-ce >> $LOG_FILE 2>&1
-    log "INFO" "Installing dependencies" 1
-    yum update
-    yum install -y yum-utils device-mapper-persistent-data lvm2 sqlite3 rsync >> $LOG_FILE 2>&1
-    log "INFO" "Installing Docker" 1
-    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo >> $LOG_FILE 2>&1
-    yum install docker-ce >> $LOG_FILE 2>&1
-    log "INFO" "Starting docker daemon" 1
-    systemctl start docker >> $LOG_FILE 2>&1
-  elif [[ "$DISTRO" == "fedora" ]]; then
-    log "INFO" "Removing old docker..." 1
-    dnf remove docker docker-client docker-client-latest docker-common docker-latest \
-               docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux \
-               docker-engine docker-ce >> $LOG_FILE 2>&1
-    log "INFO" "Installing dependencies" 1
-    dnf update
-    dnf -y install dnf-plugins-core >> $LOG_FILE 2>&1
-    dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo >> $LOG_FILE 2>&1
-    log "INFO" "Installing Docker" 1
-    dnf install docker-ce sqlite3 rsync >> $LOG_FILE 2>&1
-    log "INFO" "Starting docker daemon" 1
-    systemctl start docker >> $LOG_FILE 2>&1
-  fi
-
-  # Docker compose
-  if [[ ! -z "$(which docker-compose)" ]]; then
-    log "INFO" "Removing old docker-compose"
-    rm -rf "$(which docker-compose)"
-  fi
-
-  log "INFO" "Installing/Updating Docker-Compose" 1
-  url=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep browser_download_url | grep Linux-x86_64[^.] | cut -d '"' -f 4)
-  curl -L $url -o /usr/local/bin/docker-compose >> $LOG_FILE 2>&1
-  chmod +x /usr/local/bin/docker-compose
-}
-
 install()
 {
   gather_required_config
-  install_docker
+  # install_docker
 
   echo
   echo
@@ -389,9 +389,9 @@ configure_lidarr()
     return
   fi
 
-  docker-compose up -d lidarr | tee -a $LOG_FILE
+  docker-compose up -d lidarr
   check_if_running 'http://localhost:8686' 200 'Lidarr' 30
-  docker-compose stop lidarr | tee -a $LOG_FILE
+  docker-compose stop lidarr
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('autounmonitorpreviouslydownloadedtracks', 'True')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
@@ -432,9 +432,9 @@ configure_plex()
     exit 1;
   fi
 
-  docker-compose up -d plex | tee -a $LOG_FILE
+  docker-compose up -d plex
   check_if_running 'http://localhost:32400/web/index.html' 200 "Plex" 500
-  docker-compose stop plex | tee -a $LOG_FILE
+  docker-compose stop plex
 }
 
 configure_nzbget()
@@ -453,9 +453,9 @@ configure_nzbget()
     return
   fi
 
-  docker-compose up -d nzbget | tee -a $LOG_FILE
+  docker-compose up -d nzbget
   check_if_running 'http://localhost:6789' 401 '' 10
-  docker-compose stop nzbget | tee -a $LOG_FILE
+  docker-compose stop nzbget
 
   sed -i -e "s/^\(ControlUsername\).\+$/\1=/g" $configFile
   sed -i -e "s/^\(ControlPassword\).\+$/\1=/g" $configFile
@@ -483,7 +483,7 @@ configure_ombi()
     return
   fi
 
-  docker-compose up -d ombi | tee -a $LOG_FILE
+  docker-compose up -d ombi
   check_if_running 'http://localhost:5000' 200 'Ombi'
 
   local apiKey=$(grep -aioe '"ApiKey":"[^"]*' ${CONFIG_DIR}/ombi/Ombi.db | cut -c 11-)
@@ -496,7 +496,7 @@ configure_ombi()
   make_api_call "${apiKey}" "Issues/categories" '{"value":"Anime Movies"}'
   make_api_call "${apiKey}" "Issues/categories" '{"value":"Anime Shows"}'
 
-  make_api_call "${apiKey}" "Settings/customization" '{"applicationName":"Nateflix","applicationUrl":"https://request.nateflix.io"}'
+  make_api_call "${apiKey}" "Settings/customization" "{\"applicationName\":\"Nateflix\",\"applicationUrl\":\"https://request.${DOMAIN}\"}"
   make_api_call "${apiKey}" "Settings/Issues" '{"enabled":true,"enableInProgress":true}'
   make_api_call "${apiKey}" "Settings/authentication" '{"allowNoPassword":false,"enableOAuth":true}'
 
@@ -565,7 +565,7 @@ EOD
 # )
 #   make_api_call "${apiKey}" "Settings/plex" "${data}"
 
-  docker-compose stop ombi | tee -a $LOG_FILE
+  docker-compose stop ombi
 }
 
 configure_sonarr()
@@ -584,9 +584,9 @@ configure_sonarr()
     return
   fi
 
-  docker-compose up -d sonarr | tee -a $LOG_FILE
+  docker-compose up -d sonarr
   check_if_running 'http://localhost:8989' 200 'Sonarr'
-  docker-compose stop sonarr | tee -a $LOG_FILE
+  docker-compose stop sonarr
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
@@ -614,9 +614,9 @@ configure_radarr()
     return
   fi
 
-  docker-compose up -d radarr | tee -a $LOG_FILE
+  docker-compose up -d radarr
   check_if_running 'http://localhost:7878' 200 'Radarr'
-  docker-compose stop radarr | tee -a $LOG_FILE
+  docker-compose stop radarr
 
   sqlite3 $dbFile "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 $dbFile "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
@@ -644,9 +644,9 @@ configure_plexstats()
     return
   fi
 
-  docker-compose up -d plexstats | tee -a $LOG_FILE
+  docker-compose up -d plexstats
   check_if_running 'http://localhost:8181' 200 'Tautulli - Welcome' 500
-  docker-compose stop plexstats | tee -a $LOG_FILE
+  docker-compose stop plexstats
 
   sed -i -e "s/^\(pms_url\) =.\+$/\1 = http:\/\/plex:32400/g" $configFile
   sed -i -e "s/^\(pms_name\) =.\+$/\1 = ${PLEX_HOSTNAME}/g" $configFile
@@ -674,12 +674,12 @@ configure_deluge()
     return
   fi
 
-  docker-compose up -d deluge | tee -a $LOG_FILE
+  docker-compose up -d deluge
   check_if_running 'http://localhost:8112' 200 'Deluge'
   while [[ ! -f ${CONFIG_DIR}/deluge/auth ]]; do
     sleep 1s
   done
-  docker-compose stop deluge | tee -a $LOG_FILE
+  docker-compose stop deluge
 
   echo ${VPN_USERNAME} > ${CONFIG_DIR}/openvpn/auth.txt
   echo ${VPN_PASSWORD} >> ${CONFIG_DIR}/openvpn/auth.txt
@@ -698,7 +698,7 @@ build_and_configure()
   echo "**************************"
   echo
 
-  docker-compose build --no-cache | tee -a $LOG_FILE
+  docker-compose build --no-cache >> $LOG_FILE
   if [[ "$?" -gt 0 ]]; then
     echo "Error building images check log file ${LOG_FILE} for details"
     exit $?
@@ -714,7 +714,21 @@ build_and_configure()
   configure_deluge
 }
 
+
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run as root"
+   exit 1
+fi
+
+WORKING_DIR=$(mktemp -d)
+trap "cleanup \"${WORKING_DIR}\"" EXIT
+
+
+check_ports
+check_distro
+install_dependencies
 install
+
 
 echo
 echo "You may need to perform some extra setup steps in each application"
