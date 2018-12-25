@@ -1,6 +1,5 @@
-FROM microsoft/dotnet:2.1.3-aspnetcore-runtime-bionic
+FROM microsoft/dotnet:2.2.0-aspnetcore-runtime-stretch-slim
 # next release of OMBI will support alpine
-
 
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
