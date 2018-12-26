@@ -7,10 +7,10 @@ RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/re
 		apk update
 
 # INSTALL DELUGE
-RUN apk add py-pip boost-system@edge boost-python@edge libssl1.1@edge deluge@testing && \
+RUN apk add tzdata py-pip boost-system@edge boost-python@edge libssl1.1@edge deluge@testing && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
-		pip2 install incremental constantly packaging automat service_identity && \
+		pip2 install MarkupSafe incremental constantly packaging automat service_identity && \
 		mkdir /default && \
 		mkdir /data && \
 		mkdir /data-web && \

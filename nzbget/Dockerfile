@@ -7,7 +7,8 @@ RUN mkdir -p /opt/nzbget && \
 		wget --no-check-certificate -q -O /tmp/nzbget.run "${NZBGET_VERSION}" && \
 		sh /tmp/nzbget.run --destdir /opt/nzbget
 
-RUN	mkdir -p /defaults && \
+RUN	apk update && apk add tzdata && \
+	  mkdir -p /defaults && \
 		mkdir -p /data && \
 		mkdir -p /myfiles && \
 		mkdir -p /nzb-downloads && \

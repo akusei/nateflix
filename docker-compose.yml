@@ -4,19 +4,23 @@ services:
   portal:
     labels:
       - "traefik.frontend.rule=Host:portal.${DOMAIN}"
-      - "traefik.port=8080"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
       - "traefik.enable=true"
+      - "traefik.port=8080"
     container_name: portal
     restart: unless-stopped
-    image: traefik:1.7-alpine
-    command: --configFile=/etc/traefik/config.toml
+    image: traefik:1.7.6-alpine
+    command:
+      - --docker.domain="${DOMAIN}"
+      - --configFile=/etc/traefik/config.toml
     ports:
       - "80:80"     # The HTTP port
       - "443:443"
     volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${CONFIG_DIR}/portal:/etc/traefik
+      - ${CONFIG_DIR}/portal:/etc/traefik:ro
     env_file:
       - .env
 
@@ -31,13 +35,12 @@ services:
     restart: unless-stopped
     image: nzbget
     build: ./nzbget
-    environment:
-      TZ: ${TZ}
     ports:
       - 6789:6789/tcp
     expose:
       - 6789
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget:/data
       - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
@@ -75,19 +78,64 @@ services:
       - 32412
       - 32413
       - 32414
-    hostname: ${PLEX_HOSTNAME}
+    network_mode: host
     environment:
-      TZ: ${TZ}
-      PLEX_CLAIM: ${PLEX_CLAIM}
-      ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
+      # TZ: ${TZ}
+      PLEX_CLAIM: ${PLEX_CLAIM:-}
+      # ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
       PLEX_UPDATE_CHANNEL: 8
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plex/config:/config
       - ${CONFIG_DIR}/plex/transcode:/transcode
       - ${MEDIA_ROOT}:/data
     env_file:
       - .env
+
+  # plex:
+  #   labels:
+  #     - "traefik.frontend.rule=Host:watch.${DOMAIN}"
+  #     - "traefik.port=32400"
+  #     - "traefik.enable=true"
+  #   depends_on:
+  #     - portal
+  #   container_name: plex
+  #   image: plexinc/pms-docker:plexpass
+  #   restart: unless-stopped
+  #   ports:
+  #     - 32400:32400/tcp
+  #     - 3005:3005/tcp
+  #     - 8324:8324/tcp
+  #     - 32469:32469/tcp
+  #     - 1900:1900/udp
+  #     - 32410:32410/udp
+  #     - 32412:32412/udp
+  #     - 32413:32413/udp
+  #     - 32414:32414/udp
+  #   expose:
+  #     - 32400
+  #     - 3005
+  #     - 8324
+  #     - 32469
+  #     - 1900
+  #     - 32410
+  #     - 32412
+  #     - 32413
+  #     - 32414
+  #   hostname: ${PLEX_HOSTNAME}
+  #   environment:
+  #     TZ: ${TZ}
+  #     PLEX_CLAIM: ${PLEX_CLAIM}
+  #     ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
+  #     PLEX_UPDATE_CHANNEL: 8
+  #   volumes:
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - ${CONFIG_DIR}/plex/config:/config
+  #     - ${CONFIG_DIR}/plex/transcode:/transcode
+  #     - ${MEDIA_ROOT}:/data
+  #   env_file:
+  #     - .env
 
   plexstats:
     labels:
@@ -99,13 +147,14 @@ services:
     container_name: plexstats
     restart: unless-stopped
     image: tautulli/tautulli
-    environment:
-      TZ: ${TZ}
+    # environment:
+    #   TZ: ${TZ}
     ports:
       - 8181:8181/tcp
     expose:
       - 8181
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plexstats:/config
       - ${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Logs:/logs:ro
@@ -123,7 +172,7 @@ services:
     image: ombi
     build: ./ombi
     environment:
-      TZ: ${TZ}
+      # TZ: ${TZ}
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     ports:
@@ -131,6 +180,7 @@ services:
     expose:
       - 5000
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/ombi:/data
     env_file:
@@ -147,13 +197,14 @@ services:
     restart: unless-stopped
     image: sonarr
     build: sonarr
-    environment:
-      TZ: ${TZ}
+    # environment:
+    #   TZ: ${TZ}
     ports:
       - 8989:8989/tcp
     expose:
       - 8989
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/sonarr:/data
       - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
@@ -173,13 +224,14 @@ services:
     restart: unless-stopped
     image: radarr
     build: radarr
-    environment:
-      TZ: ${TZ}
+    # environment:
+    #   TZ: ${TZ}
     ports:
       - 7878:7878/tcp
     expose:
       - 7878
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/radarr:/data
       - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
@@ -199,13 +251,14 @@ services:
     restart: unless-stopped
     image: lidarr
     build: lidarr
-    environment:
-      TZ: ${TZ}
+    # environment:
+    #   TZ: ${TZ}
     ports:
       - 8686:8686/tcp
     expose:
       - 8686
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/lidarr:/config
       - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
@@ -227,8 +280,7 @@ services:
     image: deluge
     build: deluge
     environment:
-      TZ: ${TZ}
-      VPN_REGION: US West
+      VPN_REGION: ${VPN_REGION}
     ports:
       - 58846:58846/tcp
       - 8112:8112/tcp
@@ -240,6 +292,7 @@ services:
     cap_add:
       - NET_ADMIN
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/deluge:/data
       - ${CONFIG_DIR}/deluge-web:/data-web
