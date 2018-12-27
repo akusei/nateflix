@@ -1,5 +1,7 @@
 version: '3.7'
 
+# TODO: .env, labels and things aren't applied every "start" only on container creation!?
+
 services:
   portal:
     labels:
@@ -14,8 +16,8 @@ services:
       - --docker.domain="${DOMAIN}"
       - --configFile=/etc/traefik/config.toml
     ports:
-      - "80:80"     # The HTTP port
-      - "443:443"
+      - 80:80/tcp
+      - 443:443/tcp
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -78,64 +80,21 @@ services:
       - 32412
       - 32413
       - 32414
-    network_mode: host
+    hostname: ${HOSTNAME:-nateflix}
+    devices:
+      - /dev/dri:/dev/dri
+    privileged: true
     environment:
-      # TZ: ${TZ}
       PLEX_CLAIM: ${PLEX_CLAIM:-}
-      # ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
       PLEX_UPDATE_CHANNEL: 8
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plex/config:/config
-      - ${CONFIG_DIR}/plex/transcode:/transcode
-      - ${MEDIA_ROOT}:/data
+      - /dev/shm:/transcode
+      - ${MEDIA_ROOT}:/data:ro
     env_file:
       - .env
-
-  # plex:
-  #   labels:
-  #     - "traefik.frontend.rule=Host:watch.${DOMAIN}"
-  #     - "traefik.port=32400"
-  #     - "traefik.enable=true"
-  #   depends_on:
-  #     - portal
-  #   container_name: plex
-  #   image: plexinc/pms-docker:plexpass
-  #   restart: unless-stopped
-  #   ports:
-  #     - 32400:32400/tcp
-  #     - 3005:3005/tcp
-  #     - 8324:8324/tcp
-  #     - 32469:32469/tcp
-  #     - 1900:1900/udp
-  #     - 32410:32410/udp
-  #     - 32412:32412/udp
-  #     - 32413:32413/udp
-  #     - 32414:32414/udp
-  #   expose:
-  #     - 32400
-  #     - 3005
-  #     - 8324
-  #     - 32469
-  #     - 1900
-  #     - 32410
-  #     - 32412
-  #     - 32413
-  #     - 32414
-  #   hostname: ${PLEX_HOSTNAME}
-  #   environment:
-  #     TZ: ${TZ}
-  #     PLEX_CLAIM: ${PLEX_CLAIM}
-  #     ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
-  #     PLEX_UPDATE_CHANNEL: 8
-  #   volumes:
-  #     - /etc/localtime:/etc/localtime:ro
-  #     - ${CONFIG_DIR}/plex/config:/config
-  #     - ${CONFIG_DIR}/plex/transcode:/transcode
-  #     - ${MEDIA_ROOT}:/data
-  #   env_file:
-  #     - .env
 
   plexstats:
     labels:
@@ -147,8 +106,6 @@ services:
     container_name: plexstats
     restart: unless-stopped
     image: tautulli/tautulli
-    # environment:
-    #   TZ: ${TZ}
     ports:
       - 8181:8181/tcp
     expose:
@@ -172,7 +129,6 @@ services:
     image: ombi
     build: ./ombi
     environment:
-      # TZ: ${TZ}
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     ports:
@@ -197,8 +153,6 @@ services:
     restart: unless-stopped
     image: sonarr
     build: sonarr
-    # environment:
-    #   TZ: ${TZ}
     ports:
       - 8989:8989/tcp
     expose:
@@ -224,8 +178,6 @@ services:
     restart: unless-stopped
     image: radarr
     build: radarr
-    # environment:
-    #   TZ: ${TZ}
     ports:
       - 7878:7878/tcp
     expose:
@@ -251,8 +203,6 @@ services:
     restart: unless-stopped
     image: lidarr
     build: lidarr
-    # environment:
-    #   TZ: ${TZ}
     ports:
       - 8686:8686/tcp
     expose:
