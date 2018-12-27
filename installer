@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
-# TODO: watch.domain not working
 # TODO: deluge not working (can't connect?)
 # TODO: torrent web site is asking for password? password not known
 # TODO: make installer do an update if already installed
+# TODO: might need to check for /dev/dri and remove it from compose if not found
+#        people having issues with permission on that dir (add plex to video group?)
+# TODO: preferencesmanager:517 geoip_db_location: /usr/share/GeoIP/GeoIP.dat in deluge
 
 set -o errexit
 set -o nounset
@@ -56,32 +58,32 @@ version_compare()
   # return 2 $1 < $2
 
   if [[ $1 == $2 ]]; then
-      return 0
+    return 0
   fi
 
   local IFS=.
   local i ver1=($1) ver2=($2)
+
   # fill empty fields in ver1 with zeros
-  for ((i=${#ver1[@]}; i<${#ver2[@]}; i++))
-  do
-      ver1[i]=0
+  for ((i=${#ver1[@]}; i<${#ver2[@]}; i++)); do
+    ver1[i]=0
   done
-  for ((i=0; i<${#ver1[@]}; i++))
-  do
-      if [[ -z ${ver2[i]} ]]
-      then
-          # fill empty fields in ver2 with zeros
-          ver2[i]=0
-      fi
-      if ((10#${ver1[i]} > 10#${ver2[i]}))
-      then
-          return 1
-      fi
-      if ((10#${ver1[i]} < 10#${ver2[i]}))
-      then
-          return 2
-      fi
+
+  for ((i=0; i<${#ver1[@]}; i++)); do
+    if [[ -z ${ver2[i]} ]]; then
+      # fill empty fields in ver2 with zeros
+      ver2[i]=0
+    fi
+
+    if ((10#${ver1[i]} > 10#${ver2[i]})); then
+      return 1
+    fi
+
+    if ((10#${ver1[i]} < 10#${ver2[i]})); then
+      return 2
+    fi
   done
+
   return 0
 }
 
@@ -306,37 +308,8 @@ gather_required_config()
   echo
 
   export DOMAIN=$(get_value "Nateflix domain name" $(hostname))
-
-  # ADVERTISE_IP=192.168.1.147
-  # ADVERTISE_IP=$(get_value "IP address of this server" $ADVERTISE_IP)
-  # export ADVERTISE_IP
-
   export INSTALL_DIR=$(get_value "Install directory" "/opt/nateflix")
-
-  # INSTALL_DIR=$(get_value "Where do you want to install Nateflix" $INSTALL_DIR)
-  # if [[ -d $INSTALL_DIR ]]; then
-  #   read -ep "Directory already exists, overwrite [n]? " yn
-  #   case $yn in
-  #     [Yy]* )
-  #       #rm -rf $INSTALL_DIR
-  #       ;;
-  #     *)
-  #       echo "Aborting installation"
-  #       exit 1
-  #       ;;
-  #   esac
-  # fi
-  # if [[ $(mkdir -p $INSTALL_DIR > /dev/null 2>&1; echo $?) == 0 ]]; then
-  #   rm -rf $INSTALL_DIR
-  # else
-  #   echo "Could not create destination directory"
-  #   exit 1
-  # fi
-
   export MEDIA_ROOT=$(get_value "Root location of media library" "/mnt/media")
-
-  # TZ=$(date +%Z)
-  # export TZ
 }
 
 install()
@@ -369,24 +342,16 @@ install()
 
   cd "${INSTALL_DIR}"
 
-  # echo "Setting TZ to ${TZ}" >> $LOG_FILE
-  # echo TZ=$TZ >> ${nateflixDir}/${configFile}
   echo "Setting CONFIG_DIR to ${CONFIG_DIR}" >> "${LOG_FILE}"
   echo CONFIG_DIR=${CONFIG_DIR} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting MEDIA_ROOT to ${MEDIA_ROOT}" >> "${LOG_FILE}"
   echo MEDIA_ROOT=${MEDIA_ROOT} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting INSTALL_DIR to ${INSTALL_DIR}" >> "${LOG_FILE}"
   echo INSTALL_DIR=${INSTALL_DIR} >> "${INSTALL_DIR}/${configFile}"
-  # echo "Setting PLEX_CLAIM to ${PLEX_CLAIM}" >> "${LOG_FILE}"
-  # echo PLEX_CLAIM=${PLEX_CLAIM} >> "${nateflixDir}/${configFile}"
   echo "Setting DOMAIN to ${DOMAIN}" >> "${LOG_FILE}"
   echo DOMAIN=${DOMAIN} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting VPN_REGION to ${VPN_REGION}" >> "${LOG_FILE}"
   echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
-  # echo "Setting ADVERTISE_IP to ${ADVERTISE_IP}" >> $LOG_FILE
-  # echo ADVERTISE_IP=$ADVERTISE_IP >> ${nateflixDir}/${configFile}
-  # echo "Setting PLEX_HOSTNAME to ${PLEX_HOSTNAME}" >> $LOG_FILE
-  # echo PLEX_HOSTNAME=$PLEX_HOSTNAME >> ${nateflixDir}/${configFile}
 }
 
 configure_lidarr()
@@ -719,15 +684,6 @@ configure_portal()
   echo "Creating users..."
   echo ${PORTAL_CREDS} > "${CONFIG_DIR}/portal/users"
 }
-
-# build()
-# {
-#   docker-compose build --no-cache "${1}" >> "${LOG_FILE}"
-#   if [[ $? > 0 ]]; then
-#     echo "Error building image check log file ${LOG_FILE} for details"
-#     exit $?
-#   fi
-# }
 
 build_and_configure()
 {
