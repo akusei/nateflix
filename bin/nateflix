@@ -4,94 +4,108 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# TODO: look into what is being copied for backup and find out if those excluded
+# items are needed outside of the container (persistent)
 
-if [[ ${EUID} != 0 ]]; then
-   echo "This script must be run as root"
-   exit 1
-fi
 
-SCRIPT_DIR=$(dirname `realpath "$0"`)
+readonly COLOR_NORM="$(printf '\033[0m')"
+readonly COLOR_BOLD="$(printf '\033[0;1m')"
+readonly COLOR_RED="$(printf '\033[0;31m')"
+readonly COLOR_BOLDRED="$(printf '\033[0;1;31m')"
+readonly COLOR_WHITE="$(printf '\033[37m')"
+readonly COLOR_BOLDWHITE="$(printf '\033[0;1;37m')"
+readonly COLOR_GREEN="$(printf '\033[32m')"
+readonly COLOR_BOLDGREEN="$(printf '\033[0;1;32m')"
+readonly COLOR_YELLOW="$(printf '\033[33m')"
+readonly COLOR_BOLDYELLOW="$(printf '\033[33m')"
+readonly COLOR_BLUE="$(printf '\033[34m')"
+readonly COLOR_BOLDBLUE="$(printf '\033[34m')"
+readonly COLOR_PINK="$(printf '\033[35m')"
+readonly COLOR_BOLDPINK="$(printf '\033[35m')"
+readonly COLOR_CYAN="$(printf '\033[36m')"
+readonly COLOR_BOLDCYAN="$(printf '\033[36m')"
 
-COLOR_NORM="$(printf '\033[0m')"
-COLOR_BOLD="$(printf '\033[0;1m')"
-COLOR_RED="$(printf '\033[0;31m')"
-COLOR_BOLDRED="$(printf '\033[0;1;31m')"
-COLOR_WHITE="$(printf '\033[37m')"
-COLOR_BOLDWHITE="$(printf '\033[0;1;37m')"
-COLOR_GREEN="$(printf '\033[32m')"
-COLOR_BOLDGREEN="$(printf '\033[0;1;32m')"
-COLOR_YELLOW="$(printf '\033[33m')"
-COLOR_BOLDYELLOW="$(printf '\033[33m')"
-COLOR_BLUE="$(printf '\033[34m')"
-COLOR_BOLDBLUE="$(printf '\033[34m')"
-COLOR_PINK="$(printf '\033[35m')"
-COLOR_BOLDPINK="$(printf '\033[35m')"
-COLOR_CYAN="$(printf '\033[36m')"
-COLOR_BOLDCYAN="$(printf '\033[36m')"
 
-WORKING_DIR=""
+get_var()
+{
+  declare file="$1" name="$2"
+
+  while IFS='=' read -r var value; do
+    if [[ ${var} == ${name} ]]; then
+      echo "${value}"
+      return 0
+    fi
+  done < "${file}"
+
+  echo ""
+  return 1
+}
 
 print_service_status()
 {
-  local SERVICES=$1
-  if [[ -z $SERVICES ]]; then
-    SERVICES=$(docker-compose ps --services)
+  declare services="$@"
+
+  if [[ ${#services} == 0 ]]; then
+    services="$(docker-compose ps --services)"
+    if [[ ${#services} == 0 ]]; then
+      echo "No services are installed"
+      exit 1
+    fi
   fi
 
   local output=""
-  for service in $SERVICES; do
-    local result=$(docker ps -a --filter name=^/${service}$ --format '{{.Names}},{{.Status}}')
-    if [[ ! -z "$result" ]]; then
-      local tmp_color=$COLOR_BOLDRED
+  for service in ${services}; do
+    local result=$(docker ps -a --filter name="^/${service}$" --format '{{.Names}},{{.Status}}')
+    if [[ ! -z ${result} ]]; then
+      local tmp_color=${COLOR_BOLDRED}
       if [[ "$result" =~ "Up" ]]; then
-        tmp_color=$COLOR_BOLDGREEN
+        tmp_color=${COLOR_BOLDGREEN}
       elif [[ "$result" =~ "Created" ]]; then
-        tmp_color=$COLOR_BOLDYELLOW
+        tmp_color=${COLOR_BOLDYELLOW}
       fi
-      output="$output$(echo $result | awk -v s=$COLOR_BOLDWHITE \
-        -v c=$tmp_color -v e=$COLOR_NORM -F ',' '{print s $1 ":," c $2 e}')\n"
+      output="${output}$(echo ${result} | awk -v s=${COLOR_BOLDWHITE} \
+        -v c=${tmp_color} -v e=${COLOR_NORM} -F ',' '{print s $1 ":," c $2 e}')\n"
     fi
   done
 
-  if [[ -z "$SERVICES" ]]; then
-    echo "No services are installed"
-  else
-    echo -e $output | column -t -s,
-  fi
+  echo -e ${output} | column -t -s,
 }
 
 control_services()
 {
-  docker-compose $1 $2
+  declare action="$1" services="${@:2}"
+  docker-compose "${action}" ${services}
 }
 
 backup()
 {
-  source ./.env
+  declare backup_dir="$1" backup_file="$2"
 
+  local config_dir=$(get_var "./.env" "CONFIG_DIR")
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
-	if [[ ! -d $CONFIG_DIR ]]; then
+	if [[ ! -d ${config_dir} ]]; then
 		echo "No data to backup"
 		return 1
 	fi
 
-	if [[ ! -d $1 ]]; then
-		echo "Backup location $1 does not exist or is not a directory"
+	if [[ ! -d ${backup_dir} ]]; then
+		echo "Backup location ${backup_dir} does not exist or is not a directory"
 		return 1
 	fi
 
+  local backupFile="$(realpath "${backup_dir}")/${backup_file}"
   WORKING_DIR=$(mktemp -d)
 
-  # replace double slashes with single so we don't need to trim
-	local backupFile=$(echo "$1/$2" | sed s#//*#/#g)
+  # # replace double slashes with single so we don't need to trim
+	# local backupFile=$(echo "${backup_dir}/${backup_file}" | sed s#//*#/#g)
 
-	if [[ -f $backupFile ]]; then
-		echo "$backupFile already exists"
+	if [[ -f ${backupFile} ]]; then
+		echo "${backupFile} already exists"
 		return 1
 	fi
 
-	local backupDir=$WORKING_DIR/nateflix
+	local backupDir="${WORKING_DIR}/nateflix"
 
 	echo "Stopping Nateflix"
 	control_services stop
@@ -100,140 +114,140 @@ backup()
 	#--------------------------------------------------------
 	# BACKUP RADARR
 	#--------------------------------------------------------
-  if [[ -d $CONFIG_DIR/radarr ]]; then
+  if [[ -d ${config_dir}/radarr ]]; then
 		echo -n "saving   radarr    ... "
-		mkdir -p $backupDir/radarr
-		rsync -aq $CONFIG_DIR/radarr/ $backupDir/radarr \
+		mkdir -p "${backupDir}/radarr"
+		rsync -aq "${config_dir}/radarr/" "${backupDir}/radarr" \
 			--exclude Backups \
 			--exclude logs \
 			--exclude UpdateLogs \
 			--exclude nzbdrone.pid
-		echo $doneStr
+		echo ${doneStr}
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP PLEX
 	#--------------------------------------------------------
-	if [[ -d "$CONFIG_DIR/plex/config/Library/Application Support/Plex Media Server" ]]; then
+	if [[ -d "${config_dir}/plex/config/Library/Application Support/Plex Media Server" ]]; then
 		echo -n "saving   plex      ... "
-		mkdir -p $backupDir/plex
-		rsync -aq "$CONFIG_DIR/plex/config/Library/Application Support/Plex Media Server/" $backupDir/plex \
+		mkdir -p "${backupDir}/plex"
+		rsync -aq "${config_dir}/plex/config/Library/Application Support/Plex Media Server/" "${backupDir}/plex" \
 			--exclude Cache \
 			--exclude Crash\ Reports \
 			--exclude Logs \
 			--exclude plexmediaserver.pid
-		echo $doneStr
+		echo ${doneStr}
 	fi
 
   #--------------------------------------------------------
 	# BACKUP OMBI
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/ombi ]]; then
+	if [[ -d ${config_dir}/ombi ]]; then
 		echo -n "saving   ombi      ... "
-		mkdir -p $backupDir/ombi
-		cp $CONFIG_DIR/ombi/Ombi.db $backupDir/ombi
-    cp $CONFIG_DIR/ombi/Schedules.db $backupDir/ombi
-		echo $doneStr
+		mkdir -p "${backupDir}/ombi"
+		cp "${config_dir}/ombi/Ombi.db" "${backupDir}/ombi"
+    cp "${config_dir}/ombi/Schedules.db" "${backupDir}/ombi"
+		echo ${doneStr}
 	fi
 
   #--------------------------------------------------------
   # BACKUP TAUTULLI
   #--------------------------------------------------------
-  if [[ -d $CONFIG_DIR/plexstats/config ]]; then
+  if [[ -d ${config_dir}/plexstats/config ]]; then
 		echo -n "saving   plexstats ... "
-		mkdir -p $backupDir/plexstats
-    cp $CONFIG_DIR/plexstats/config/config.ini $backupDir/plexstats
-    cp $CONFIG_DIR/plexstats/config/tautulli.db $backupDir/plexstats
-		echo $doneStr
+		mkdir -p "${backupDir}/plexstats"
+    cp "${config_dir}/plexstats/config/config.ini" "${backupDir}/plexstats"
+    cp "${config_dir}/plexstats/config/tautulli.db" "${backupDir}/plexstats"
+		echo ${doneStr}
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP NZBGET
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/nzbget/config ]]; then
+	if [[ -d ${config_dir}/nzbget/config ]]; then
 		echo -n "saving   nzbget    ... "
-		mkdir -p $backupDir/nzbget
-		cp $CONFIG_DIR/nzbget/config/nzbget.conf $backupDir/nzbget
-		echo $doneStr
+		mkdir -p "${backupDir}/nzbget"
+		cp "${config_dir}/nzbget/config/nzbget.conf" "${backupDir}/nzbget"
+		echo ${doneStr}
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP SONARR
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/sonarr ]]; then
+	if [[ -d ${config_dir}/sonarr ]]; then
 		echo -n "saving   sonarr    ... "
-		mkdir -p $backupDir/sonarr
-		rsync -aq $CONFIG_DIR/sonarr/ $backupDir/sonarr \
+		mkdir -p "${backupDir}/sonarr"
+		rsync -aq "${config_dir}/sonarr/" "${backupDir}/sonarr" \
 			--exclude Backups \
 			--exclude logs \
 			--exclude UpdateLogs \
 			--exclude nzbdrone.pid
-		echo $doneStr
+		echo ${doneStr}
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP LIDARR
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/lidarr ]]; then
+	if [[ -d ${config_dir}/lidarr ]]; then
 		echo -n "saving   lidarr    ... "
-		mkdir -p $backupDir/lidarr
-    rsync -aq $CONFIG_DIR/lidarr/ $backupDir/lidarr \
+		mkdir -p "${backupDir}/lidarr"
+    rsync -aq "${config_dir}/lidarr/" "${backupDir}/lidarr" \
 			--exclude Backups \
 			--exclude logs \
 			--exclude UpdateLogs \
 			--exclude lidarr.pid
-		echo $doneStr
+		echo ${doneStr}
 	fi
 
 	#--------------------------------------------------------
 	# BACKUP DELUGE
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/deluge ]]; then
+	if [[ -d ${config_dir}/deluge ]]; then
 		echo -n "saving   deluge    ... "
-		mkdir -p $backupDir/deluge
-		mkdir -p $backupDir/deluge-web
-		rsync -aq $CONFIG_DIR/deluge/ $backupDir/deluge \
+		mkdir -p "${backupDir}/deluge"
+		mkdir -p "${backupDir}/deluge-web"
+		rsync -aq "${config_dir}/deluge/" "${backupDir}/deluge" \
       --exclude state \
       --exclude downloads \
       --exclude deluged.log
-    rsync -aq $CONFIG_DIR/deluge-web/ $backupDir/deluge-web \
+    rsync -aq "${config_dir}/deluge-web/" "${backupDir}/deluge-web" \
       --exclude deluge-web.log
-		echo $doneStr
+		echo ${doneStr}
 	fi
 
   #--------------------------------------------------------
 	# BACKUP OPENVPN
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/openvpn ]]; then
+	if [[ -d ${config_dir}/openvpn ]]; then
 		echo -n "saving   openvpn   ... "
-		mkdir -p $backupDir/openvpn
-    cp -R $CONFIG_DIR/openvpn/* $backupDir/openvpn/
-		echo $doneStr
+		mkdir -p "${backupDir}/openvpn"
+    cp -R "${config_dir}/openvpn/*" "${backupDir}/openvpn/"
+		echo ${doneStr}
 	fi
 
   #--------------------------------------------------------
 	# BACKUP PORTAL
 	#--------------------------------------------------------
-	if [[ -d $CONFIG_DIR/portal ]]; then
+	if [[ -d ${config_dir}/portal ]]; then
 		echo -n "saving   portal    ... "
-		mkdir -p $backupDir/portal
-    cp -R $CONFIG_DIR/portal/* $backupDir/portal/
-		echo $doneStr
+		mkdir -p "${backupDir}/portal"
+    cp -R "${CONFIG_DIR}/portal/*" "${backupDir}/portal/"
+		echo ${doneStr}
 	fi
 
-	if [[ -d $backupDir ]]; then
-    cp .env $backupDir
+	if [[ -d ${backupDir} ]]; then
+    cp .env "${backupDir}"
     echo
 		echo -n "creating backup    ... "
-    cd $backupDir
-		tar -czf $backupFile .env * > /dev/null
+    cd "${backupDir}"
+		tar -czf "${backupFile}" .env * > /dev/null
     cd - > /dev/null
-    echo $doneStr
+    echo ${doneStr}
 	fi
 
 	echo -n "cleaning up        ... "
-	rm -rf $backupDir
-  echo $doneStr
+	rm -rf "${backupDir}"
+  echo ${doneStr}
   echo
 
 	echo "Staring Nateflix"
@@ -244,30 +258,31 @@ backup()
 	return 0
 }
 
-restore ()
+restore()
 {
-  source ./.env
+  declare backup_file="$1"
 
+  local config_dir=$(get_var "./.env" "CONFIG_DIR")
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
   WORKING_DIR=$(mktemp -d)
-	local backupDir=$WORKING_DIR/nateflix
+	local backupDir="${WORKING_DIR}/nateflix"
 
-  mkdir -p $backupDir
-  mkdir -p $CONFIG_DIR
-  tar -zxvf $1 -C $backupDir > /dev/null
+  mkdir -p "${backupDir}"
+  mkdir -p "${config_dir}"
+  tar -zxvf "${backup_file}" -C "${backupDir}" > /dev/null
 
 	echo "Stopping Nateflix"
 	control_services stop
   echo
 
-  cd $backupDir
+  cd "${backupDir}"
   for dir in *; do
-    if [[ -d $dir ]]; then
-      printf "restoring %-10s ... " $dir
-      mkdir -p $CONFIG_DIR/$dir
-      cp -Rf $backupDir/$dir/* $CONFIG_DIR/$dir/
-      echo $doneStr
+    if [[ -d ${dir} ]]; then
+      printf "restoring %-10s ... " "${dir}"
+      mkdir -p "${config_dir}/${dir}"
+      cp -Rf "${backupDir}/${dir}/*" "${config_dir}/${dir}/"
+      echo ${doneStr}
     fi
   done
   cd - > /dev/null
@@ -275,8 +290,8 @@ restore ()
   # cp -f .env $SCRIPT_DIR
 
 	echo -n "cleaning up         ... "
-	rm -rf $backupDir
-  echo $doneStr
+	rm -rf "${backupDir}"
+  echo ${doneStr}
   echo
 
 	echo "Staring Nateflix"
@@ -287,14 +302,15 @@ restore ()
 	return 0
 }
 
-upgrade ()
+upgrade_service()
 {
-  local SERVICES=$1
-  if [[ -z $SERVICES ]]; then
-    SERVICES=$(docker-compose ps --services)
+  declare services="$@"
+
+  if [[ ${#services} == 0 ]]; then
+    services=$(docker-compose ps --services)
   fi
 
-  for service in $SERVICES; do
+  for service in ${services}; do
     local image_name="${service}"
     case "${service}" in
     	"plex")
@@ -305,40 +321,48 @@ upgrade ()
         image_name="traefik";;
     esac
 
-    docker rmi --force $image_name
-    docker-compose build --no-cache $service
-    docker-compose rm -svf $service
-    docker-compose up -d $service
+    docker-compose stop ${service}
+    docker-compose rm -svf ${service}
+    docker rmi --force ${image_name}
+    docker-compose build --no-cache ${service}
+    docker-compose up -d ${service}
   done
 }
 
-remove ()
+remove()
 {
+  declare force="$1"
+
   read -ep "Remove Nateflix, config files will not be removed [n]? " yn
   case $yn in
-    [Yy]* )
+    [Yy]*)
       ;;
     *)
-      echo "Aborting installation"
-      exit 1
-      ;;
+      echo "Aborting..."
+      exit 1;;
   esac
 
-  source ./.env
+  local config_dir=$(get_var "./.env" "CONFIG_DIR")
+
   docker-compose down --rmi all -v --remove-orphans
   rm -rf /usr/local/sbin/nateflix > /dev/null
   rm -rf "${SCRIPT_DIR}" > /dev/null
 
   echo
-  echo "Nateflix has been removed. Configuration data in ${CONFIG_DIR} was not removed"
+  if [[ ${force} == "--nuke" ]]; then
+    rm -rf "${config_dir}"
+    echo "Nateflix has been removed. ALL CONFIG DATA HAS ALSO BEEN REMOVED!!"
+  else
+    echo "Nateflix has been removed. Configuration data in ${config_dir} was not removed"
+  fi
   echo
 }
 
 show_help ()
 {
-	local me=$(basename "$(test -L "$0" && readlink "$0" || echo "$0")")
+	local me="$(basename "$(test -L "$0" && readlink "$0" || echo "$0")")"
 	echo "Utility to manage a Nateflix server. Written by Nathan Martini v1.0"
-	echo "usage: $me { backup <to_path> | restore <from_file> | upgrade [service] | remove [service] | status [service] | start [service] | stop [service]}"
+	echo "usage: $me { backup <to_path> | restore <from_file> | upgrade [service] | remove [--nuke] | status [service] | start [service] | stop [service]}"
 	echo
 	echo "   backup    Backup Nateflix configuration to specified path"
 	echo "   restore   Restore Nateflix configuration from specified file"
@@ -354,22 +378,35 @@ show_help ()
 
 cleanup ()
 {
-  if [[ -d $WORKING_DIR ]]; then
-	   rm -rf $WORKING_DIR
+  declare working="$1"
+  if [[ -d ${working} ]]; then
+	   rm -rf "${working}"
   fi
 }
 
 ##############################################################################
-#                           MAIN STRATS HERE                                 #
+#                           MAIN STARTS HERE                                 #
 ##############################################################################
 
-trap "cleanup $WORKING_DIR" EXIT
+if [[ ${EUID} != 0 ]]; then
+   echo "This script must be run as root"
+   exit 1
+fi
 
-cd $SCRIPT_DIR
+WORKING_DIR=""
+readonly SCRIPT_DIR="$(readlink -f "$(dirname "$(realpath "$0")")/../")"
+trap "cleanup \"\${WORKING_DIR}\"" EXIT
 
-case "$1" in
+
+# changing to installation directory is easier since docker-compose
+# works better in the project dir; and I won't have to add --project-directory
+# to every execution of docker-compose
+cd "${SCRIPT_DIR}"
+
+
+case "${1:-}" in
 	"backup")
-		if [[ -z "$2" ]]; then
+		if [[ -z $2 ]]; then
 			echo >&2 "Must specify backup location"
 			exit 1
 		fi
@@ -377,36 +414,28 @@ case "$1" in
 		exit $?;;
 
 	"restore")
-		if [[ -z "$2" ]]; then
+		if [[ -z $2 ]]; then
 			echo >&2 "Must specify backup file to restore"
 			exit 1
 		fi
-		restore $2
+		restore "$2"
 		exit $?;;
 
-	"stop")
-		control_services stop $2
-		exit 0;;
-
-	"start")
-		control_services start $2
-		exit 0;;
-
-  "restart")
-		control_services restart $2
+	"stop"|"start"|"restart")
+		control_services "${1}" "${@:2}"
 		exit 0;;
 
   "upgrade")
-    upgrade_service $2
+    upgrade_service "${@:2}"
     exit 0;;
 
 	"status")
-		print_service_status $2
+		print_service_status "${@:2}"
 		exit 0;;
 
 	"remove")
-		remove
-		exit 0;;
+		remove "${2:-}"
+    exit 0;;
 
 	"--help")
 		show_help
