@@ -665,10 +665,8 @@ configure_deluge()
   echo ${VPN_USERNAME} > "${CONFIG_DIR}/openvpn/auth.txt"
   echo ${VPN_PASSWORD} >> "${CONFIG_DIR}/openvpn/auth.txt"
 
-  # NOT doing this, we're not going to expose this because it doesn't work
-  # use the web interface exclusively
-  # # for some reason, this MUST be the last line in the file
-  # echo "::10" >> "${CONFIG_DIR}/deluge/auth"
+  # for some reason, this MUST be the last line in the file
+  echo "::10" >> "${CONFIG_DIR}/deluge/auth"
 
   # this will set the password to blank
   sed -i -e "s/^\(.\+\"first_login\": \)true\(.\+\)$/\\1false\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
