@@ -7,10 +7,12 @@ RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/re
 		apk update
 
 # INSTALL DELUGE
-RUN apk add tzdata py-pip boost-system@edge boost-python@edge libssl1.1@edge deluge@testing && \
+RUN apk add tzdata geoip py-pip boost-system@edge boost-python@edge \
+				    libssl1.1@edge deluge@testing && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
 		pip2 install MarkupSafe incremental constantly packaging automat service_identity && \
+		/etc/periodic/monthly/geoip && \
 		mkdir /default && \
 		mkdir /data && \
 		mkdir /data-web && \
@@ -40,6 +42,8 @@ RUN chmod a+x /usr/local/bin/entrypoint
 
 EXPOSE 58846/tcp
 EXPOSE 8112/tcp
+EXPOSE 58946/tcp
+EXPOSE 58946/udp
 
 VOLUME /data /data-web /openvpn /torrent-downloads /myfiles
 
