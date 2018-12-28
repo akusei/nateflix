@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 
-# TODO: deluge not working (can't connect?)
-# TODO: torrent web site is asking for password? password not known
 # TODO: make installer do an update if already installed
 # TODO: might need to check for /dev/dri and remove it from compose if not found
 #        people having issues with permission on that dir (add plex to video group?)
-# TODO: preferencesmanager:517 geoip_db_location: /usr/share/GeoIP/GeoIP.dat in deluge
 
 set -o errexit
 set -o nounset
@@ -135,21 +132,24 @@ check_distro()
 
 cleanup()
 {
-  if [[ -d $1 ]]; then
-    rm -rf $1
+  declare work_dir="$1"
+
+  if [[ -d ${work_dir} ]]; then
+    rm -rf "${work_dir}"
   fi
 }
 
 check_if_running()
 {
+  declare url="$1" expected_status="$2" expected_content="$3" retries="${4:-20}"
+
   local http_status='0'
   local http_content=''
-  local retries=${4:-20}
   local out=''
 
   # while [[ $http_status != "$2" || $http_content != *"$3"* ]]; do
-  while [[ ${http_status} != ${2} || ! ${http_content} =~ ${3} ]]; do
-    out=$(curl -k --silent -L -w "\n%{http_code}" "$1" || true)
+  while [[ ${http_status} != ${expected_status} || ! ${http_content} =~ ${expected_content} ]]; do
+    out=$(curl -k --silent -L -w "\n%{http_code}" "${url}" || true)
     http_status="${out##*$'\n'}"
     http_content="${out%$'\n'*}"
     retries=$((${retries}-1))
@@ -307,7 +307,7 @@ gather_required_config()
 
   echo
 
-  export DOMAIN=$(get_value "Nateflix domain name" $(hostname))
+  export DOMAIN=$(get_value "Nateflix domain name (FQDN if you have one)" "$(hostname).local")
   export INSTALL_DIR=$(get_value "Install directory" "/opt/nateflix")
   export MEDIA_ROOT=$(get_value "Root location of media library" "/mnt/media")
 }
@@ -664,10 +664,16 @@ configure_deluge()
 
   echo ${VPN_USERNAME} > "${CONFIG_DIR}/openvpn/auth.txt"
   echo ${VPN_PASSWORD} >> "${CONFIG_DIR}/openvpn/auth.txt"
-  echo "::10" > "${CONFIG_DIR}/deluge/auth"
 
-  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
-  sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
+  # NOT doing this, we're not going to expose this because it doesn't work
+  # use the web interface exclusively
+  # # for some reason, this MUST be the last line in the file
+  # echo "::10" >> "${CONFIG_DIR}/deluge/auth"
+
+  # this will set the password to blank
+  sed -i -e "s/^\(.\+\"first_login\": \)true\(.\+\)$/\\1false\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
+  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1bc564fecb4c2b1b9380995b28ef2e85298bbfbd1\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
+  sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1b8db8b895fccd7f9aa156fe82ff35744f3f60224\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
 }
 
 configure_portal()

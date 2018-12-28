@@ -220,7 +220,6 @@ services:
   deluge:
     labels:
       - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
-      - "traefik.port=8112"
       - "traefik.enable=true"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
@@ -232,7 +231,6 @@ services:
     environment:
       VPN_REGION: ${VPN_REGION}
     ports:
-      - 58846:58846/tcp
       - 8112:8112/tcp
     expose:
       - 8112
