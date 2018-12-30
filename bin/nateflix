@@ -302,7 +302,7 @@ restore()
 	return 0
 }
 
-upgrade_service()
+update_service()
 {
   declare services="$@"
 
@@ -425,8 +425,8 @@ case "${1:-}" in
 		control_services "${1}" "${@:2}"
 		exit 0;;
 
-  "upgrade")
-    upgrade_service "${@:2}"
+  "update")
+    update_service "${@:2}"
     exit 0;;
 
 	"status")

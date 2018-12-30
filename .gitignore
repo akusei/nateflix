@@ -1,5 +1,6 @@
 /clean
 nateflix.run
+/set_env
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
