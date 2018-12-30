@@ -1,6 +1,7 @@
 version: '3.7'
 
 # TODO: .env, labels and things aren't applied every "start" only on container creation!?
+# TODO: ADD JACKETT https://github.com/Jackett/Jackett
 
 services:
   portal:
@@ -30,6 +31,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:newz.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=6789"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -37,8 +39,6 @@ services:
     restart: unless-stopped
     image: nzbget
     build: ./nzbget
-    ports:
-      - 6789:6789/tcp
     expose:
       - 6789
     volumes:
@@ -60,26 +60,16 @@ services:
     container_name: plex
     image: plexinc/pms-docker:plexpass
     restart: unless-stopped
-    ports:
-      - 32400:32400/tcp
-      - 3005:3005/tcp
-      - 8324:8324/tcp
-      - 32469:32469/tcp
-      - 1900:1900/udp
-      - 32410:32410/udp
-      - 32412:32412/udp
-      - 32413:32413/udp
-      - 32414:32414/udp
     expose:
       - 32400
-      - 3005
-      - 8324
-      - 32469
-      - 1900
-      - 32410
-      - 32412
-      - 32413
-      - 32414
+      # - 3005
+      # - 8324
+      # - 32469
+      # - 1900
+      # - 32410
+      # - 32412
+      # - 32413
+      # - 32414
     hostname: ${HOSTNAME:-nateflix}
     devices:
       - /dev/dri:/dev/dri
@@ -100,14 +90,13 @@ services:
     labels:
       - "traefik.frontend.rule=Host:stats.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=8181"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: plexstats
     restart: unless-stopped
     image: tautulli/tautulli
-    ports:
-      - 8181:8181/tcp
     expose:
       - 8181
     volumes:
@@ -122,6 +111,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:request.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=5000"
     depends_on:
       - portal
     container_name: ombi
@@ -131,8 +121,6 @@ services:
     environment:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
-    ports:
-      - 5000:5000/tcp
     expose:
       - 5000
     volumes:
@@ -146,6 +134,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:shows.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=8989"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -153,8 +142,6 @@ services:
     restart: unless-stopped
     image: sonarr
     build: sonarr
-    ports:
-      - 8989:8989/tcp
     expose:
       - 8989
     volumes:
@@ -171,6 +158,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:movies.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=7878"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -178,8 +166,6 @@ services:
     restart: unless-stopped
     image: radarr
     build: radarr
-    ports:
-      - 7878:7878/tcp
     expose:
       - 7878
     volumes:
@@ -196,6 +182,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:music.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=8686"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -203,8 +190,6 @@ services:
     restart: unless-stopped
     image: lidarr
     build: lidarr
-    ports:
-      - 8686:8686/tcp
     expose:
       - 8686
     volumes:
@@ -221,6 +206,7 @@ services:
     labels:
       - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
       - "traefik.enable=true"
+      - "traefik.port=8112"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -230,8 +216,6 @@ services:
     build: deluge
     environment:
       VPN_REGION: ${VPN_REGION}
-    ports:
-      - 8112:8112/tcp
     expose:
       - 8112
     dns:
@@ -249,3 +233,28 @@ services:
       - ${MEDIA_ROOT}:/myfiles
     env_file:
       - .env
+
+  # TODO: has issues with systems running resolved, need to figure out a way around this
+  # pihole:
+  #   restart: unless-stopped
+  #   container_name: pihole
+  #   image: pihole/pihole:latest
+  #   cap_add:
+  #     - NET_ADMIN
+  #   ports:
+  #     - 53:53/tcp
+  #     - 53:53/udp
+  #     - 67:67/udp
+  #   expose:
+  #     - 80
+  #   environment:
+  #     # TZ: America/Los_Angeles
+  #     WEBPASSWORD: <password>
+  #     DNS1: 8.8.8.8
+  #     DNS2: 8.8.4.4
+  #     # ServerIP: 
+  #   volumes:
+  #     - /docker/pihole/config:/etc/pihole
+  #     - /docker/pihole/dnsmasq:/etc/dnsmasq.d
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /etc/timezone:/etc/timezone:ro

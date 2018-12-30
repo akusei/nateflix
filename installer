@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
 
-# TODO: make installer do an update if already installed
 # TODO: might need to check for /dev/dri and remove it from compose if not found
 #        people having issues with permission on that dir (add plex to video group?)
+# TODO: various configurations using cli
+# TODO: Test permissions and integration
+# TODO: add pihole
+
 
 set -o errexit
 set -o nounset
 set -o pipefail
 
 
-LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
+readonly LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
 
+
+check_installed()
+{
+  if hash nateflix 2>/dev/null; then
+    echo "Nateflix is already installed. Please remove existing installation before continuing"
+    echo "To remove nateflix run the command \"nateflix remove\""
+    exit 1
+  fi
+}
 
 check_ports()
 {
-  local ports="80 443 6789 32400 3005 8324 32469 1900 32410 32412 32413 32414 8181 5000 8989 7878 8686 8112 58846"
+  local ports="80 443 38258"
   local used=''
   local openPorts=$(lsof -Pi -n | grep -v "[-][>]" | grep -v "COMMAND")
 
@@ -35,31 +47,37 @@ check_ports()
 
 log()
 {
+  declare level="$1" message="$2" stdout="${3:-}"
+
   local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-  echo "${timestamp} [${1}] ${2}" >> "${LOG_FILE}"
-  if [[ ${3:-} == 1 ]]; then
-    echo "${2}"
+  echo "${timestamp} [${level}] ${message}" >> "${LOG_FILE}"
+  if [[ ${stdout} == 1 ]]; then
+    echo "${message}"
   fi
 }
 
 get_var()
 {
-  source $2
-  echo ${!1}
+  declare var_name="$1" config_file="$2"
+
+  source "${config_file}"
+  echo "${!var_name}"
 }
 
 version_compare()
 {
+  declare first="$1" second="$2"
+
   # return 0 $1 == $2
   # return 1 $1 > $2
   # return 2 $1 < $2
 
-  if [[ $1 == $2 ]]; then
+  if [[ ${first} == ${second} ]]; then
     return 0
   fi
 
   local IFS=.
-  local i ver1=($1) ver2=($2)
+  local i ver1=($first) ver2=($second)
 
   # fill empty fields in ver1 with zeros
   for ((i=${#ver1[@]}; i<${#ver2[@]}; i++)); do
@@ -118,15 +136,15 @@ check_distro()
     exit 1
   fi
 
-  export PACKAGE_UPDATE='apt-get -qq update'
-  export PACKAGE_INSTALL='apt-get -qq -y install'
+  export PACKAGE_UPDATE="apt-get -qq update"
+  export PACKAGE_INSTALL="apt-get -qq -y install"
 
-  if [[ "${DISTRO}" == "centos" ]]; then
-    PACKAGE_UPDATE=''
-    PACKAGE_INSTALL='yum install -y'
-  elif [[ "${DISTRO}" == "fedora" ]]; then
-    PACKAGE_UPDATE=''
-    PACKAGE_INSTALL='dnf -y install'
+  if [[ ${DISTRO} == "centos" ]]; then
+    PACKAGE_UPDATE=""
+    PACKAGE_INSTALL="yum install -y"
+  elif [[ ${DISTRO} == "fedora" ]]; then
+    PACKAGE_UPDATE=""
+    PACKAGE_INSTALL="dnf -y install"
   fi
 }
 
@@ -139,16 +157,16 @@ cleanup()
   fi
 }
 
-check_if_running()
+wait_for_service()
 {
-  declare url="$1" expected_status="$2" expected_content="$3" retries="${4:-20}"
+  declare url_path="$1" status="$2" content="$3" retries="${4:-20}"
 
+  local url="http://localhost:38258${url_path}"
   local http_status='0'
   local http_content=''
   local out=''
 
-  # while [[ $http_status != "$2" || $http_content != *"$3"* ]]; do
-  while [[ ${http_status} != ${expected_status} || ! ${http_content} =~ ${expected_content} ]]; do
+  while [[ ${http_status} != ${status} || ! ${http_content} =~ ${content} ]]; do
     out=$(curl -k --silent -L -w "\n%{http_code}" "${url}" || true)
     http_status="${out##*$'\n'}"
     http_content="${out%$'\n'*}"
@@ -165,17 +183,21 @@ check_if_running()
 
 extract()
 {
-  local archive=$(awk '/^__ARCHIVE__/ {print NR + 1; exit 0; }' "${0}")
-  tail -n+${archive} "${0}" | tar xpJv -C $1 >> "${LOG_FILE}" 2>&1
+  declare self="$0" dest="$1"
+
+  local archive=$(awk '/^__ARCHIVE__/ {print NR + 1; exit 0; }' "${self}")
+  tail -n+${archive} "${self}" | tar xpJv -C "${dest}" >> "${LOG_FILE}" 2>&1
 }
 
 get_value()
 {
-    read -ep "$1 [$2]? " value
-    if [[ ! -z "$value" ]]; then
-      echo $value
+    declare question="$1" default="$2"
+
+    read -ep "${question} [${default}]? " value
+    if [[ -n ${value} ]]; then
+      echo "${value}"
     else
-      echo $2
+      echo "${default}"
     fi
 }
 
@@ -184,14 +206,14 @@ check_prereqs()
   local reqDockerVersion="18.06.0"
   local reqDCVersion="1.23.1"
 
-  if [[ $(hash docker 2>/dev/null; echo $?) != 0 ]]; then
+  if ! hash docker 2>/dev/null; then
     echo "docker is not installed"
     echo "please install the latest version of docker"
     echo "https://docs.docker.com/install/linux/docker-ce/${DISTRO}/"
     exit 1
   fi
 
-  if [[ $(hash docker-compose 2>/dev/null; echo $?) != 0 ]]; then
+  if ! hash docker-compose 2>/dev/null; then
     echo "docker-compose is not installed"
     echo "please install the latest version of docker compose"
     echo "https://docs.docker.com/compose/install/"
@@ -200,14 +222,14 @@ check_prereqs()
 
   local dockerVersion=$(docker --version|cut -d ' ' -f 3|cut -d ',' -f 1)
   local dcVersion=$(docker-compose --version|cut -d ' ' -f 3|cut -d ',' -f 1)
-  if [[ $(version_compare $dockerVersion "${reqDockerVersion}"; echo $?) == 2 ]]; then
+  if [[ $(version_compare "${dockerVersion}" "${reqDockerVersion}"; echo $?) == 2 ]]; then
     echo "Your docker version (${dockerVersion}) is not supported"
     echo "Version >= ${reqDockerVersion} is required"
     echo "Please update your docker https://docs.docker.com/install/linux/docker-ce/${DISTRO}/"
     exit 1
   fi
 
-  if [[ $(version_compare $dcVersion "${reqDCVersion}"; echo $?) == 2 ]]; then
+  if [[ $(version_compare "${dcVersion}" "${reqDCVersion}"; echo $?) == 2 ]]; then
     echo "Your docker-compose version (${dcVersion}) is not supported"
     echo "Version >= ${reqDCVersion} is required"
     echo "Please update your docker-compose https://docs.docker.com/compose/install/"
@@ -224,6 +246,35 @@ install_dependencies()
   ${PACKAGE_INSTALL} rsync sqlite3 curl openssl >> "${LOG_FILE}" 2>&1
 }
 
+get_plex_token()
+{
+  declare username="$1" password="$2"
+
+  local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
+          --header "X-Plex-Product: Nateflix Installation" \
+          --header "X-Plex-Version: V1" \
+          -d "user[login]=${username}&user[password]=${password}" \
+          -X POST https://plex.tv/users/sign_in.json)
+  local re="^\{\"error\":\"(.+)\"\}$"
+  if [[ $result =~ $re ]]; then
+    log "ERROR" "Login failed: ${BASH_REMATCH[1]}" 1
+    echo ""
+    return 1
+  elif [[ $result != *"{\"user\":"* ]]; then
+    echo $result >> "${LOG_FILE}"
+    log "ERROR" "Login failed: Unexpected result, try again (check ${LOG_FILE} for details)" 1
+  else
+    token=$(echo $result | grep -ioe '"authToken":"[^"]*' | cut -c 14-)
+    if [[ -z ${token} ]]; then
+      echo "Unable to parse plex login token"
+      exit 1
+    fi
+  fi
+
+  echo ${token}
+  return 0
+}
+
 gather_required_config()
 {
   echo
@@ -233,73 +284,66 @@ gather_required_config()
   echo "**************************"
   echo
 
-  export CONFIG_DIR=/nateflix
-  export PLEX_HOSTNAME=Nateflix
+  if [[ -z ${CONFIG_DIR:-} ]]; then
+    export CONFIG_DIR=/nateflix
+  fi
 
-  log "INFO" "Gathering credentials..."
-  while [[ -z ${PLEX_USERNAME:-} || -z ${PLEX_PASSWORD:-} && -z ${PLEX_TOKEN:-} ]]; do
-    read -ep "Plex username: " PLEX_USERNAME
-    read -esp "Plex password: " PLEX_PASSWORD
-    echo
-
-    if [[ -z ${PLEX_USERNAME} || -z ${PLEX_PASSWORD} ]]; then
-      echo "Plex username and password required"
-    elif [[ -n ${PLEX_USERNAME} && -n ${PLEX_PASSWORD} ]]; then
-      local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
-              --header "X-Plex-Product: Nateflix Installation" \
-              --header "X-Plex-Version: V1" \
-              -d "user[login]=${PLEX_USERNAME}&user[password]=${PLEX_PASSWORD}" \
-              -X POST https://plex.tv/users/sign_in.json)
-      local re="^\{\"error\":\"(.+)\"\}$"
-      if [[ $result =~ $re ]]; then
-        log "ERROR" "Login failed: ${BASH_REMATCH[1]}" 1
-        PLEX_USERNAME=''
-        PLEX_PASSWORD=''
-      elif [[ $result != *"{\"user\":"* ]]; then
-        echo $result >> "${LOG_FILE}"
-        log "ERROR" "Login failed: Unexpected result, try again (check ${LOG_FILE} for details)" 1
-        PLEX_USERNAME=''
-        PLEX_PASSWORD=''
-      else
-        PLEX_TOKEN=$(echo $result | grep -ioe '"authToken":"[^"]*' | cut -c 14-)
-        if [[ -z ${PLEX_TOKEN} ]]; then
-          echo "Unable to parse plex login token"
-          exit 1
-        fi
+  if [[ -z ${PLEX_USERNAME:-} && -z ${PLEX_PASSWORD:-} && -z ${PLEX_TOKEN:-} ]]; then
+    log "INFO" "Gathering credentials..."
+    while [[ -z ${PLEX_USERNAME:-} || -z ${PLEX_PASSWORD:-} && -z ${PLEX_TOKEN:-} ]]; do
+      read -ep "Plex username: " PLEX_USERNAME
+      read -esp "Plex password: " PLEX_PASSWORD
+      echo
+      if [[ -z ${PLEX_USERNAME} || -z ${PLEX_PASSWORD} ]]; then
+        echo "Plex username and password required"
+      elif [[ -n ${PLEX_USERNAME} && -n ${PLEX_PASSWORD} ]]; then
+        PLEX_TOKEN=$(get_plex_token "${PLEX_USERNAME}" "${PLEX_PASSWORD}")
       fi
-    fi
-  done
+    done
+  else
+    echo "PLEX_CREDENTIALS:   ${PLEX_USERNAME}:********"
+    PLEX_TOKEN=$(get_plex_token "${PLEX_USERNAME}" "${PLEX_PASSWORD}")
+  fi
 
   export PLEX_USERNAME
   export PLEX_PASSWORD
   export PLEX_TOKEN
 
-  echo
-  echo "Set credentials for web access to system portal"
-  while [[ -z ${PORTAL_USERNAME:-} ]]; do
-    read -ep "Portal Username: " PORTAL_USERNAME
-    if [[ -z ${PORTAL_USERNAME} ]]; then
-      echo "Portal username is required"
-    else
-      PORTAL_PASSWORD=$(openssl passwd -apr1 -quiet 2>/dev/null || true)
-      while [[ -z ${PORTAL_PASSWORD} ]]; do
+  if [[ -z ${PORTAL_USERNAME:-} && -z ${PORTAL_PASSWORD:-} ]]; then
+    echo
+    echo "Set credentials for web access to system portal"
+    while [[ -z ${PORTAL_USERNAME:-} ]]; do
+      read -ep "Portal Username: " PORTAL_USERNAME
+      if [[ -z ${PORTAL_USERNAME} ]]; then
+        echo "Portal username is required"
+      else
         PORTAL_PASSWORD=$(openssl passwd -apr1 -quiet 2>/dev/null || true)
-      done
-    fi
-  done
+        while [[ -z ${PORTAL_PASSWORD} ]]; do
+          PORTAL_PASSWORD=$(openssl passwd -apr1 -quiet 2>/dev/null || true)
+        done
+      fi
+    done
+  else
+    echo "PORTAL_CREDENTIALS: ${PORTAL_USERNAME}:********"
+    PORTAL_PASSWORD=$(echo ${PORTAL_PASSWORD}|openssl passwd -stdin -apr1 -quiet 2>/dev/null || true)
+  fi
 
   export PORTAL_CREDS="${PORTAL_USERNAME}:${PORTAL_PASSWORD}"
 
-  echo
-  echo "Set credentials for Private Internet Access VPN"
-  while [[ -z ${VPN_USERNAME:-} || -z ${VPN_PASSWORD:-} ]]; do
-    read -ep "PIA VPN Username: " VPN_USERNAME
-    read -esp "PIA VPN Password: " VPN_PASSWORD
+  if [[ -z ${VPN_USERNAME:-} && -z $VPN_PASSWORD:-} ]]; then
     echo
-    if [[ -z ${VPN_USERNAME} || -z ${VPN_PASSWORD} ]]; then
-      echo "VPN username and password are required"
-    fi
-  done
+    echo "Set credentials for Private Internet Access VPN"
+    while [[ -z ${VPN_USERNAME:-} || -z ${VPN_PASSWORD:-} ]]; do
+      read -ep "PIA VPN Username: " VPN_USERNAME
+      read -esp "PIA VPN Password: " VPN_PASSWORD
+      echo
+      if [[ -z ${VPN_USERNAME} || -z ${VPN_PASSWORD} ]]; then
+        echo "VPN username and password are required"
+      fi
+    done
+  else
+    echo "VPN_CREDENTIALS:    ${VPN_USERNAME}:********"
+  fi
 
   export VPN_USERNAME
   export VPN_PASSWORD
@@ -307,9 +351,23 @@ gather_required_config()
 
   echo
 
-  export DOMAIN=$(get_value "Nateflix domain name (FQDN if you have one)" "$(hostname).local")
-  export INSTALL_DIR=$(get_value "Install directory" "/opt/nateflix")
-  export MEDIA_ROOT=$(get_value "Root location of media library" "/mnt/media")
+  if [[ -z ${DOMAIN:-} ]]; then
+    export DOMAIN=$(get_value "Nateflix domain name (FQDN if you have one)" "$(hostname).local")
+  else
+    echo "DOMAIN:      ${DOMAIN}"
+  fi
+
+  if [[ -z ${INSTALL_DIR:-} ]]; then
+    export INSTALL_DIR=$(get_value "Install directory" "/opt/nateflix")
+  else
+    echo "INSTALL_DIR: ${INSTALL_DIR}"
+  fi
+
+  if [[ -z ${MEDIA_ROOT:-} ]]; then
+    export MEDIA_ROOT=$(get_value "Root location of media library" "/mnt/media")
+  else
+    echo "MEDIA_ROOT:  ${MEDIA_ROOT}"
+  fi
 }
 
 install()
@@ -354,6 +412,26 @@ install()
   echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
 }
 
+docker_stop()
+{
+  declare service="$1"
+  docker stop "${service}" > /dev/null
+  docker rm "${service}" > /dev/null
+}
+
+docker_start()
+{
+  declare service="$1" port="$2" url="$3" status="$4" \
+          content="$5" retries="${6:-20}" dont_stop="${7:-0}"
+
+  docker-compose run -d --publish=38258:${port} --name "${service}" "${service}"
+  wait_for_service "${url}" ${status} "${content}" ${retries}
+
+  if [[ ${dont_stop} == 0 ]]; then
+    docker_stop "${service}"
+  fi
+}
+
 configure_lidarr()
 {
   echo
@@ -370,9 +448,7 @@ configure_lidarr()
     return
   fi
 
-  docker-compose up -d lidarr
-  check_if_running 'http://localhost:8686' 200 'Lidarr' 30
-  docker-compose stop lidarr
+  docker_start "lidarr" 8686 "" 200 "Lidarr" 30
 
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('autounmonitorpreviouslydownloadedtracks', 'True')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
@@ -413,9 +489,7 @@ configure_plex()
     exit 1;
   fi
 
-  docker-compose up -d plex
-  check_if_running 'http://localhost:32400/web/index.html' 200 "Plex" 500
-  docker-compose stop plex
+  docker_start "plex" 32400 "/web/index.html" 200 "Plex" 500
 }
 
 configure_nzbget()
@@ -434,9 +508,7 @@ configure_nzbget()
     return
   fi
 
-  docker-compose up -d nzbget
-  check_if_running 'http://localhost:6789' 401 '' 10
-  docker-compose stop nzbget
+  docker_start "nzbget" 6789 "" 401 "" 10
 
   sed -i -e "s/^\(ControlUsername\).\+$/\1=/g" "${configFile}"
   sed -i -e "s/^\(ControlPassword\).\+$/\1=/g" "${configFile}"
@@ -444,9 +516,11 @@ configure_nzbget()
 
 make_api_call()
 {
+  declare api_key="$1" url="$2" data="$3"
+
   curl -Ls -H 'Content-Type: application/json' \
-       -H "ApiKey: $1" \
-       -d "$3" "http://localhost:5000/api/v1/$2"
+       -H "ApiKey: ${api_key}" \
+       -d "${data}" "http://localhost:38258/api/v1/${url}"
 }
 
 configure_ombi()
@@ -464,8 +538,7 @@ configure_ombi()
     return
   fi
 
-  docker-compose up -d ombi
-  check_if_running 'http://localhost:5000' 200 'Ombi'
+  docker_start "ombi" 5000 "" 200 "Ombi" 20 1
 
   local apiKey=$(grep -aioe '"ApiKey":"[^"]*' "${CONFIG_DIR}/ombi/Ombi.db" | cut -c 11-)
   local sonarrKey=$(cat "${CONFIG_DIR}/sonarr/config.xml" | grep -aioe "<ApiKey>[^<]*" | cut -c 9-)
@@ -482,28 +555,35 @@ configure_ombi()
   make_api_call "${apiKey}" "Settings/authentication" '{"allowNoPassword":false,"enableOAuth":true}'
 
   local data=$(cat <<- EOD
-  {"enabled": true,
-  "apiKey": "${sonarrKey}",
-  "qualityProfile": "6",
-  "seasonFolders": true,
-  "qualityProfileAnime": "6",
-  "addOnly": false,
-  "ssl": false,
-  "ip": "sonarr",
-  "port": 8989}
+  {
+    "enabled": true,
+    "apiKey": "${sonarrKey}",
+    "qualityProfile": "6",
+    "seasonFolders": true,
+    "qualityProfileAnime": "6",
+    "addOnly": false,
+    "v3": false,
+    "ssl": false,
+    "ip": "sonarr",
+    "port": 8989,
+    "id": 0
+  }
 EOD
 )
   make_api_call "${apiKey}" "Settings/sonarr" "${data}"
 
   data=$(cat <<- EOD
-  {"enabled": true,
-  "apiKey": "${radarrKey}",
-  "defaultQualityProfile": "6",
-  "addOnly": false,
-  "minimumAvailability": "Released",
-  "ssl": false,
-  "ip": "radarr",
-  "port": 7878}
+  {
+    "id": 1,
+    "enabled": true,
+    "apiKey": "${radarrKey}",
+    "defaultQualityProfile": "6",
+    "addOnly": false,
+    "minimumAvailability": "Released",
+    "ssl": false,
+    "ip": "radarr",
+    "port": 7878
+  }
 EOD
 )
   make_api_call "${apiKey}" "Settings/radarr" "${data}"
@@ -525,28 +605,48 @@ EOD
 # EOD
 # )
 
-#   data=$(cat <<- EOD
-#   {
-#     "enable": true,
-#     "servers": [
-#       {
-#         "name": "Nateflix",
-#         "plexSelectedLibraries": [
-#           {
-#             "enabled": true
-#           }
-#         ],
-#         "ssl": true,
-#         "ip": "plex",
-#         "port": 32400
-#       }
-#     ]
-#   }
-# EOD
-# )
-#   make_api_call "${apiKey}" "Settings/plex" "${data}"
+  data=$(cat <<- EOD
+  {
+    "enable": true,
+    "installId": "48e1cc35-c5cf-4555-8326-27a922fdb749",
+    "servers": [
+      {
+        "name": "Nateflix",
+        "plexSelectedLibraries": [
+          {
+            "enabled": true
+          }
+        ],
+        "ssl": true,
+        "ip": "plex",
+        "port": 32400
+      }
+    ],
+    "id": 2
+  }
+EOD
+)
+  make_api_call "${apiKey}" "Settings/plex" "${data}"
 
-  docker-compose stop ombi
+  # {
+  #   "servers": [
+  #     {
+  #       "name": "Server 1",
+  #       "plexAuthToken": "<token>",
+  #       "machineIdentifier": "",
+  #       "episodeBatchSize": 0,
+  #       "plexSelectedLibraries": [],
+  #       "ssl": false,
+  #       "subDir": null,
+  #       "ip": "",
+  #       "port": 0,
+  #       "id": 987987987
+  #     }
+  #   ],
+  # }
+
+  #docker-compose stop ombi
+  docker_stop "ombi"
 }
 
 configure_sonarr()
@@ -565,9 +665,7 @@ configure_sonarr()
     return
   fi
 
-  docker-compose up -d sonarr
-  check_if_running 'http://localhost:8989' 200 'Sonarr'
-  docker-compose stop sonarr
+  docker_start "sonarr" 8989 "" 200 "Sonarr" 20
 
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
@@ -595,9 +693,7 @@ configure_radarr()
     return
   fi
 
-  docker-compose up -d radarr
-  check_if_running 'http://localhost:7878' 200 'Radarr'
-  docker-compose stop radarr
+  docker_start "radarr" 7878 "" 200 "Radarr" 20
 
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
@@ -625,12 +721,10 @@ configure_plexstats()
     return
   fi
 
-  docker-compose up -d plexstats
-  check_if_running 'http://localhost:8181' 200 'Tautulli - Welcome' 500
-  docker-compose stop plexstats
+  docker_start "plexstats" 8181 "" 200 "Tautulli - Welcome" 500
 
   sed -i -e "s/^\(pms_url\) =.\+$/\1 = http:\/\/plex:32400/g" "${configFile}"
-  sed -i -e "s/^\(pms_name\) =.\+$/\1 = ${PLEX_HOSTNAME}/g" "${configFile}"
+  sed -i -e "s/^\(pms_name\) =.\+$/\1 = ${DOMAIN}/g" "${configFile}"
   sed -i -e "s/^\(pms_plexpass\) =.\+$/\1 = 1/g" "${configFile}"
   sed -i -e "s/^\(pms_port\) =.\+$/\1 = 32400/g" "${configFile}"
   sed -i -e "s/^\(pms_platform\) =.\+$/\1 = Linux/g" "${configFile}"
@@ -655,12 +749,11 @@ configure_deluge()
     return
   fi
 
-  docker-compose up -d deluge
-  check_if_running 'http://localhost:8112' 200 'Deluge'
+  docker_start "deluge" 8112 "" 200 "Deluge" 20 1
   while [[ ! -f "${CONFIG_DIR}/deluge/auth" ]]; do
     sleep 1s
   done
-  docker-compose stop deluge
+  docker_stop "deluge"
 
   echo ${VPN_USERNAME} > "${CONFIG_DIR}/openvpn/auth.txt"
   echo ${VPN_PASSWORD} >> "${CONFIG_DIR}/openvpn/auth.txt"
@@ -727,6 +820,7 @@ trap "cleanup \"${WORKING_DIR}\"" EXIT
 
 
 # Check for required packages, distros and ports, exit if missing requirements
+check_installed
 check_ports
 check_distro
 check_prereqs
@@ -754,15 +848,15 @@ echo
 echo "You may need to perform some extra setup steps in each application"
 echo "The following domains might also need to be added to your hosts file"
 echo
-echo "NZBGet:     http://newz.${DOMAIN}"
-echo "Plex:       http://watch.${DOMAIN}"
-echo "Plex Stats: http://stats.${DOMAIN}"
-echo "Lidarr:     http://music.${DOMAIN}"
-echo "Sonarr:     http://shows.${DOMAIN}"
-echo "Radarr:     http://movies.${DOMAIN}"
-echo "OMBI:       http://request.${DOMAIN}"
-echo "Deluge:     http://torrents.${DOMAIN}"
-echo "Portal:     http://portal.${DOMAIN}"
+echo "NZBGet:     https://newz.${DOMAIN}"
+echo "Plex:       https://watch.${DOMAIN}"
+echo "Plex Stats: https://stats.${DOMAIN}"
+echo "Lidarr:     https://music.${DOMAIN}"
+echo "Sonarr:     https://shows.${DOMAIN}"
+echo "Radarr:     https://movies.${DOMAIN}"
+echo "OMBI:       https://request.${DOMAIN}"
+echo "Deluge:     https://torrents.${DOMAIN}"
+echo "Portal:     https://portal.${DOMAIN}"
 echo
 
 exit $?
