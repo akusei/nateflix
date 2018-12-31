@@ -26,9 +26,9 @@ check_installed()
 
 check_ports()
 {
-  local ports="80 443 38258"
+  local ports="53 67 80 443 38258 32400 3005 8324 32469 1900 32410 32412 32413 32414"
   local used=''
-  local openPorts=$(lsof -Pi -n | grep -v "[-][>]" | grep -v "COMMAND")
+  local openPorts=$(lsof -Pi -n | grep -Pv "\-\>|127\.0\.0\." | grep -v "COMMAND")
 
   for port in $ports; do
     local result=$(grep ":${port} " <<< "${openPorts}" | tail -n 1)
@@ -159,9 +159,9 @@ cleanup()
 
 wait_for_service()
 {
-  declare url_path="$1" status="$2" content="$3" retries="${4:-20}"
+  declare port="$1" url_path="$2" status="$3" content="$4" retries="${5:-20}"
 
-  local url="http://localhost:38258${url_path}"
+  local url="http://${ADVERTISE_IP}:${port}${url_path}"
   local http_status='0'
   local http_content=''
   local out=''
@@ -330,7 +330,7 @@ gather_required_config()
 
   export PORTAL_CREDS="${PORTAL_USERNAME}:${PORTAL_PASSWORD}"
 
-  if [[ -z ${VPN_USERNAME:-} && -z $VPN_PASSWORD:-} ]]; then
+  if [[ -z ${VPN_USERNAME:-} && -z ${VPN_PASSWORD:-} ]]; then
     echo
     echo "Set credentials for Private Internet Access VPN"
     while [[ -z ${VPN_USERNAME:-} || -z ${VPN_PASSWORD:-} ]]; do
@@ -351,22 +351,44 @@ gather_required_config()
 
   echo
 
+  if [[ -z ${ADVERTISE_IP:-} ]]; then
+    local ip=$(ip route get 8.8.8.8 | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}')
+    export ADVERTISE_IP=$(get_value "Advertise IP" "${ip}")
+    # echo "Select the advertise IP address. This allows uPnP to work properly"
+    # local devices=$(ip -f inet link show | grep 'state UP' | grep -Pv "docker|lo:" | cut -d ' ' -f 2 | sed 's/.$//')
+    # local ips=""
+    # local options=""
+    # for device in ${devices}; do
+    #   local ip=$(ip -f inet addr show ${device} | grep -Po 'inet \K[\d.]+')
+    #   ips="${ips:-}${ip} "
+    #   options="${options}${device}: ${ip}|"
+    # done
+    #
+    # echo "Available advertising addresses"
+    # echo "${options//|/$'\n'}" | column -c 2 -t
+    # echo
+    #
+    # export ADVERTISE_IP=$(get_value "Advertise IP" "${ip[0]}")
+  else
+    echo "ADVERTISE_IP: ${ADVERTISE_IP}"
+  fi
+
   if [[ -z ${DOMAIN:-} ]]; then
     export DOMAIN=$(get_value "Nateflix domain name (FQDN if you have one)" "$(hostname).local")
   else
-    echo "DOMAIN:      ${DOMAIN}"
+    echo "DOMAIN:       ${DOMAIN}"
   fi
 
   if [[ -z ${INSTALL_DIR:-} ]]; then
     export INSTALL_DIR=$(get_value "Install directory" "/opt/nateflix")
   else
-    echo "INSTALL_DIR: ${INSTALL_DIR}"
+    echo "INSTALL_DIR:  ${INSTALL_DIR}"
   fi
 
   if [[ -z ${MEDIA_ROOT:-} ]]; then
     export MEDIA_ROOT=$(get_value "Root location of media library" "/mnt/media")
   else
-    echo "MEDIA_ROOT:  ${MEDIA_ROOT}"
+    echo "MEDIA_ROOT:   ${MEDIA_ROOT}"
   fi
 }
 
@@ -385,7 +407,6 @@ install()
   log "INFO" "Creating directories" 1
   mkdir -p "${INSTALL_DIR}"
   mkdir -p "${MEDIA_ROOT}"
-  mkdir -p "${CONFIG_DIR}/portal"
 
   local configFile=.env
 
@@ -410,13 +431,15 @@ install()
   echo DOMAIN=${DOMAIN} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting VPN_REGION to ${VPN_REGION}" >> "${LOG_FILE}"
   echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting ADVERTISE_IP to ${ADVERTISE_IP}" >> "${LOG_FILE}"
+  echo ADVERTISE_IP=${ADVERTISE_IP} >> "${INSTALL_DIR}/${configFile}"
 }
 
 docker_stop()
 {
   declare service="$1"
-  docker stop "${service}" > /dev/null
-  docker rm "${service}" > /dev/null
+  docker stop "${service}" > /dev/null 2>&1
+  docker rm "${service}" > /dev/null 2>&1
 }
 
 docker_start()
@@ -424,8 +447,8 @@ docker_start()
   declare service="$1" port="$2" url="$3" status="$4" \
           content="$5" retries="${6:-20}" dont_stop="${7:-0}"
 
-  docker-compose run -d --publish=38258:${port} --name "${service}" "${service}"
-  wait_for_service "${url}" ${status} "${content}" ${retries}
+  docker-compose run -d --publish=${ADVERTISE_IP}:38258:${port} --name "${service}" "${service}"
+  wait_for_service 38258 "${url}" ${status} "${content}" ${retries}
 
   if [[ ${dont_stop} == 0 ]]; then
     docker_stop "${service}"
@@ -489,7 +512,9 @@ configure_plex()
     exit 1;
   fi
 
-  docker_start "plex" 32400 "/web/index.html" 200 "Plex" 500
+  docker-compose up -d plex
+  wait_for_service 32400 "/web/index.html" 200 "Plex" 500
+  docker-compose stop plex
 }
 
 configure_nzbget()
@@ -520,7 +545,7 @@ make_api_call()
 
   curl -Ls -H 'Content-Type: application/json' \
        -H "ApiKey: ${api_key}" \
-       -d "${data}" "http://localhost:38258/api/v1/${url}"
+       -d "${data}" "http://${ADVERTISE_IP}:38258/api/v1/${url}"
 }
 
 configure_ombi()
@@ -776,11 +801,61 @@ configure_portal()
   echo "**************************"
   echo
 
+  log "INFO" "Configuring Portal"
+  local configFile="${CONFIG_DIR}/portal/config.toml"
+  if [[ -f ${configFile} ]]; then
+    log "INFO" "Portal already configured; skipping..." 1
+    return
+  fi
+
   echo "Copying configuration..."
-  cp "${INSTALL_DIR}/portal/config.toml" "${CONFIG_DIR}/portal"
+  mkdir -p "${CONFIG_DIR}/portal"
+  cp "${INSTALL_DIR}/portal/config.toml" "${configFile}"
   echo "Creating users..."
   echo ${PORTAL_CREDS} > "${CONFIG_DIR}/portal/users"
 }
+
+configure_pihole()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   CONFIGURING PIHOLE   *"
+  echo "**************************"
+  echo
+
+  log "INFO" "Configuring PiHole"
+  local configFile="${CONFIG_DIR}/pihole/dnsmasq/02-local.conf"
+  if [[ -f ${configFile} ]]; then
+    log "INFO" "PiHole already configured; skipping..." 1
+    return
+  fi
+
+  echo "Configuring ${DOMAIN} DNS entries"
+  mkdir -p "${CONFIG_DIR}/pihole/dnsmasq"
+  echo "address=/${DOMAIN}/${ADVERTISE_IP}" > "${configFile}"
+}
+
+# configure_jackett()
+# {
+#   echo
+#   echo
+#   echo "**************************"
+#   echo "*  CONFIGURING JACKETT   *"
+#   echo "**************************"
+#   echo
+#
+#   log "INFO" "Configuring Jackett"
+#   local configFile="${CONFIG_DIR}/jackett/ServerConfig.json"
+#   if [[ -f ${configFile} ]]; then
+#     log "INFO" "Jackett already configured; skipping..." 1
+#     return
+#   fi
+#
+#   docker_start "jackett" 9117 "" 200 "awdawdadw" 20
+#
+#   export JACKETT_APIKEY=$(grep -aioe '"APIKey": "[^"]*' "${configFile}" | cut -c 12-)
+# }
 
 build_and_configure()
 {
@@ -799,6 +874,8 @@ build_and_configure()
   fi
 
   configure_portal
+  # configure_jackett
+  configure_pihole
   configure_plex
   configure_nzbget
   configure_lidarr
@@ -821,9 +898,9 @@ trap "cleanup \"${WORKING_DIR}\"" EXIT
 
 # Check for required packages, distros and ports, exit if missing requirements
 check_installed
-check_ports
 check_distro
 check_prereqs
+check_ports
 
 # Install smaller dependencies
 install_dependencies
@@ -857,6 +934,8 @@ echo "Radarr:     https://movies.${DOMAIN}"
 echo "OMBI:       https://request.${DOMAIN}"
 echo "Deluge:     https://torrents.${DOMAIN}"
 echo "Portal:     https://portal.${DOMAIN}"
+echo "PiHole:     https://pihole.${DOMAIN}"
+echo "Jakcett:    https://jackett.${DOMAIN}"
 echo
 
 exit $?

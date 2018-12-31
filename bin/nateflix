@@ -111,6 +111,8 @@ backup()
 	control_services stop
   echo
 
+  # TODO: Backup Portal, pihole and jackett
+
 	#--------------------------------------------------------
 	# BACKUP RADARR
 	#--------------------------------------------------------
@@ -333,7 +335,12 @@ remove()
 {
   declare force="$1"
 
-  read -ep "Remove Nateflix, config files will not be removed [n]? " yn
+  local msg="Remove Nateflix, config files will not be removed [n]?"
+  if [[ ${force} == "--nuke" ]]; then
+    msg="Remove Nateflix, config files WILL BE REMOVED!! [n]?"
+  fi
+
+  read -ep "${msg} " yn
   case $yn in
     [Yy]*)
       ;;

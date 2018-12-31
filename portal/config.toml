@@ -1,4 +1,4 @@
-debug = true
+debug = false
 
 logLevel = "INFO"
 defaultEntryPoints = ["https","http"]
@@ -8,6 +8,7 @@ defaultEntryPoints = ["https","http"]
   address = ":80"
     [entryPoints.http.redirect]
     entryPoint = "https"
+    permanent = true
   [entryPoints.https]
   address = ":443"
   [entryPoints.https.tls]
@@ -19,7 +20,7 @@ defaultEntryPoints = ["https","http"]
 [docker]
 endpoint = "unix:///var/run/docker.sock"
 watch = true
-exposedByDefault = false
+exposedByDefault = true
 
 
 # [frontends]

@@ -3,7 +3,7 @@
 filename=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 10 | head -n 1)
 tar --exclude=clean --exclude=nateflix.run --exclude=installer \
     --exclude=create-installer --exclude=.env --exclude=__pycache__ \
-    --exclude=.gitignore -cJf /tmp/$filename *
+    --exclude=.gitignore --exclude=set_env --exclude=clear_env -cJf /tmp/$filename *
 rm ./nateflix.run > /dev/null 2>&1
 cp ./installer ./nateflix.run
 cat /tmp/$filename >> ./nateflix.run
