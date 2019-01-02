@@ -7,12 +7,30 @@ RUN apt-get -qq update && \
     curl -o /tmp/linux.tgz -L "https://github.com/Jackett/Jackett/releases/download/${VERSION}/Jackett.Binaries.Mono.tar.gz" && \
     tar -zxvf /tmp/linux.tgz -C /opt && \
     chmod a+x /opt/Jackett/JackettConsole.exe && \
-    mkdir -p /data && \
+    mkdir -p /config && \
+    mkdir -p /torrents && \
+    mkdir -p /etc/default && \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
 
+COPY entrypoint /usr/local/bin/entrypoint
 
-EXPOSE 9117
-VOLUME /data
+RUN chmod a+x /usr/local/bin/entrypoint
 
+# RUN groupadd -g 1000 jackett && \
+#     useradd -r -u 1000 -g jackett jackett && \
+#     chown -R jackett:jackett /opt/Jackett && \
+#     chwon -R jackett:jackett /data && \
+#     chmod a+x /usr/local/bin/entrypoint
 
-ENTRYPOINT ["mono", "--debug", "/opt/Jackett/JackettConsole.exe", "--IgnoreSslErrors=true", "--NoUpdates", "--DataFolder=/data"]
+EXPOSE 80
+VOLUME /config /torrents
+
+# USER jackett
+
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
+CMD ["mono", "--debug", "/opt/Jackett/JackettConsole.exe", \
+     "--NoRestart", \
+     "--IgnoreSslErrors=true", \
+     "--NoUpdates", \
+     "--DataFolder=/config", \
+     "--Port=80"]

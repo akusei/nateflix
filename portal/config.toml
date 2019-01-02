@@ -17,6 +17,10 @@ defaultEntryPoints = ["https","http"]
 
 [api]
 
+[ping]
+
+[metrics]
+
 [docker]
 endpoint = "unix:///var/run/docker.sock"
 watch = true

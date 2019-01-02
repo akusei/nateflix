@@ -9,12 +9,12 @@ RUN mkdir -p /opt/nzbget && \
 
 RUN	apk update && apk add tzdata && \
 	  mkdir -p /defaults && \
+		mkdir -p /config && \
 		mkdir -p /data && \
-		mkdir -p /myfiles && \
 		mkdir -p /nzb-downloads && \
 		cp /opt/nzbget/nzbget.conf /defaults/nzbget.conf && \
 		sed -i -e "s#\(MainDir=\).*#\1/nzb-downloads#g" \
-				-e "s#\(ScriptDir=\).*#\1/data/config/scripts#g" \
+				-e "s#\(ScriptDir=\).*#\1/config/config/scripts#g" \
 				-e "s#\(DupeCheck=\).*#\1no#g" \
 				-e "s#\(HealthCheck=\).*#\1delete#g" \
 				-e "s#\(DeleteCleanupDisk=\).*#\1yes#g" \
@@ -28,11 +28,11 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
 
 EXPOSE 6789
-VOLUME /data /nzb-downloads /myfiles
+VOLUME /config /nzb-downloads /data
 
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/opt/nzbget/nzbget", "--server", "-c", "/data/config/nzbget.conf", "--option", "OutputMode=log"]
+CMD ["/opt/nzbget/nzbget", "--server", "-c", "/config/config/nzbget.conf", "--option", "OutputMode=log"]
 
 # echo [INFO] Installing RAR && \
 # wget --no-check-certificate -q -O /tmp/rar.tgz http://www.rarlab.com/rar/rarlinux-x64-5.4.0.tar.gz && \

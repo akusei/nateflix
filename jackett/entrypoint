@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+config_file=/data/ServerConfig.json
+if [[ ! -f ${config_file} ]]; then
+  mono /opt/Jackett/JackettConsole.exe --NoRestart --IgnoreSslErrors=true --NoUpdates --DataFolder=/config &
+  PID=$!
+  while [[ ! -f ${config_file} ]]; do
+    sleep 1
+  done
+
+  kill ${PID}
+  wait
+fi
+
+if [[ -f ${config_file} ]]; then
+  sed -i -e 's/\(^.*"AllowExternal": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
+      -e 's/\(^.*"Port": \).*[^,]\(,\)\{0,1\}$/\180\2/g' \
+      -e 's/\(^.*"BlackholeDir": \).*[^,]\(,\)\{0,1\}$/\1"\/torrents"\2/g' \
+      -e 's/\(^.*"UpdateDisabled": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
+      -e 's/\(^.*"UpdatePrerelease": \).*[^,]\(,\)\{0,1\}$/\1false\2/g' "${config_file}"
+fi
+
+exec "$@"

@@ -12,11 +12,12 @@ RUN apt-get update && \
 		mkdir -p /opt/Ombi && \
 		tar -zxvf /tmp/linux.tgz -C /opt/Ombi && \
 		chmod a+x /opt/Ombi/Ombi && \
+		mkdir -p /config && \
 		rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
 
 
 EXPOSE 5000
-VOLUME /data
+VOLUME /config
 
 WORKDIR /opt/Ombi
 

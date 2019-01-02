@@ -1,8 +1,13 @@
 version: '3.7'
 
-# TODO: .env, labels and things aren't applied every "start" only on container creation!?
+# TODO: rename directories to be more constistent
+# TODO: add user permissions
+# TODO: add torrent "black hole" dir to jackett and deluge
+# TODO: make downloaded files go to /media/incoming
+# TODO: split out .env files into individual ones so up -d won't restart everything
 
 services:
+  # TODO: Done
   portal:
     labels:
       - "traefik.frontend.rule=Host:portal.${DOMAIN}"
@@ -25,10 +30,12 @@ services:
     env_file:
       - .env
 
+  # TODO: permissions on dirs
+  # TODO: figure out a way to use ssl or remove s on https in links
   jackett:
     labels:
       - "traefik.frontend.rule=Host:jackett.${DOMAIN}"
-      - "traefik.port=9117"
+      - "traefik.port=80"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -36,15 +43,21 @@ services:
     restart: unless-stopped
     image: jackett
     build: ./jackett
+    networks:
+      default:
+        aliases:
+          - jackett.${DOMAIN}
     expose:
-      - 9117
+      - 80
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/jackett:/data
+      - ${CONFIG_DIR}/jackett:/config
+      - ${CONFIG_DIR}/torrents:/torrents
     env_file:
       - .env
 
+  # TODO: file permissions
   nzbget:
     labels:
       - "traefik.frontend.rule=Host:newz.${DOMAIN}"
@@ -61,12 +74,15 @@ services:
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/nzbget:/data
+      - ${CONFIG_DIR}/nzbget:/config
       - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
-      - ${MEDIA_ROOT}:/myfiles
+      - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
+  # TODO: file permissions
+  # TODO: figure out advertise ip
+  # TODO: do I want /data ro?
   plex:
     labels:
       - "traefik.frontend.rule=Host:watch.${DOMAIN}"
@@ -98,21 +114,22 @@ services:
       - 32414
     hostname: ${HOSTNAME:-nateflix}
     devices:
-      - /dev/dri:/dev/dri
+      - /dev/dri
     privileged: true
     environment:
       PLEX_CLAIM: ${PLEX_CLAIM:-}
       PLEX_UPDATE_CHANNEL: 8
-      ADVERTISE_IP: http://${ADVERTISE_IP}:32400/
+      ADVERTISE_IP: https://${ADVERTISE_IP}:32400/
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/plex/config:/config
+      - ${CONFIG_DIR}/plex:/config
       - /dev/shm:/transcode
       - ${MEDIA_ROOT}:/data:ro
     env_file:
       - .env
 
+  # TODO: Done
   plexstats:
     labels:
       - "traefik.frontend.rule=Host:stats.${DOMAIN}"
@@ -129,7 +146,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plexstats:/config
-      - ${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Logs:/logs:ro
+      - ${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Logs:/logs:ro
     env_file:
       - .env
 
@@ -151,7 +168,7 @@ services:
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/ombi:/data
+      - ${CONFIG_DIR}/ombi:/config
     env_file:
       - .env
 
@@ -224,6 +241,9 @@ services:
     env_file:
       - .env
 
+  # TODO: run as non-root
+  # TODO: make dir names better
+  # TODO: verify config
   deluge:
     labels:
       - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
@@ -255,13 +275,14 @@ services:
     env_file:
       - .env
 
+  # TODO: Done
   pihole:
     labels:
       - "traefik.frontend.rule=Host:pihole.${DOMAIN}"
-      - "traefik.frontend.rule=AddPrefix:/admin"
-      - "traefik.frontend."
       - "traefik.port=80"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
+    depends_on:
+      - portal
     restart: unless-stopped
     container_name: pihole
     image: pihole/pihole:latest
@@ -274,16 +295,17 @@ services:
     expose:
       - 80
     environment:
-      WEBPASSWORD:
+      WEBPASSWORD: ""
       DNS1: 8.8.8.8
       DNS2: 8.8.4.4
       ServerIP: ${ADVERTISE_IP}
-      VIRTUAL_HOST: https://pihole.${DOMAIN}/admin/
+      PROXY_LOCATION: pihole
+      VIRTUAL_HOST: pihole.${DOMAIN}
+      VIRTUAL_PORT: 443
     volumes:
       - ${CONFIG_DIR}/pihole/config:/etc/pihole
       - ${CONFIG_DIR}/pihole/dnsmasq:/etc/dnsmasq.d
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-      - ./pihole/index.php:/var/www/html/pihole/index.php:ro
     env_file:
       - .env

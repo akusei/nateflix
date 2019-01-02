@@ -1,18 +1,18 @@
 #!/bin/sh
 
-if [ ! -d /data/config ] || [ ! -d /data/runtime ]; then
+if [ ! -d /config/config ] || [ ! -d /config/runtime ]; then
   echo "[INFO] Creating directory structure"
-  mkdir -p /data/config/scripts
-  mkdir -p /data/runtime
+  mkdir -p /config/config/scripts
+  mkdir -p /config/runtime
 fi
 
-if [ ! -f /data/config/nzbget.conf ]; then
-  echo "[INFO] Copying config into /data/nzbget.conf"
-  cp /defaults/nzbget.conf /data/config/nzbget.conf
+if [ ! -f /config/config/nzbget.conf ]; then
+  echo "[INFO] Copying config into /config/nzbget.conf"
+  cp /defaults/nzbget.conf /config/config/nzbget.conf
 fi
 
-if [ -f /data/runtime/nzbget.lock ]; then
-  rm -rf /data/runtime/nzbget.lock
+if [ -f /config/runtime/nzbget.lock ]; then
+  rm -rf /config/runtime/nzbget.lock
 fi
 
 exec "$@"
