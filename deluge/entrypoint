@@ -1,0 +1,57 @@
+#!/usr/bin/env sh
+
+# TODO: this needs a lot of work!
+# TODO: maybe break openvpn out into its own container?
+
+username=$(getent passwwd ${PUID} | cut -d ':' -f 1)
+groupname=$(getent group ${PGID} | cut -d ':' -f 1)
+
+if [ -z ${groupname} ]; then
+  addgroup -S -g ${PGID} deluge
+  groupname=deluge
+fi
+
+if [ -z ${username} ]; then
+  adduser -S -H -D -u ${PUID} -G ${groupname} deluge
+  username=deluge
+fi
+
+if ! groups ${username} | grep -q ${groupname}; then
+  adduser -G ${groupname} ${username}
+fi
+
+if [ ! -f /openvpn/auth.txt ]; then
+  echo "username" >> /openvpn/auth.txt
+  echo "password" >> /openvpn/auth.txt
+fi
+
+if [ ! -f /openvpn/server.ovpn ]; then
+  cp "/etc/openvpn/${VPN_REGION}.ovpn" /openvpn/server.ovpn
+  sed -i -e 's#^auth-user-pass$#auth-user-pass /openvpn/auth.txt#g' /openvpn/server.ovpn
+fi
+
+[ ! -d /dev/net ] && mkdir -p /dev/net
+[ ! -c /dev/net/tun ] && mknod /dev/net/tun c 10 200
+
+[ ! -f /deluge-config/core.conf ] && cp /default/core.conf /deluge-config/core.conf
+[ ! -f /deluge-config/label.conf ] && cp /default/label.conf /deluge-config/label.conf
+
+host=$(grep 'remote .\+ \d\+' /openvpn/server.ovpn | cut -d ' ' -f 2)
+port=$(grep 'remote .\+ \d\+' /openvpn/server.ovpn | cut -d ' ' -f 3)
+
+echo y | ufw reset
+ufw default allow incoming
+ufw default deny outgoing
+ufw allow out on eth0 from any to ${host} port ${port}
+ufw allow out on tun0 from any to any
+ufw enable
+
+chown -R ${PUID}:${PGID} \
+      /openvpn \
+      /deluge-config \
+      /deluge-web-config \
+      /torrent-downloads
+
+export USERNAME=${username}
+
+exec "$@"

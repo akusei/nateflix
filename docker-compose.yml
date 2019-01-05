@@ -5,6 +5,9 @@ version: '3.7'
 # TODO: add torrent "black hole" dir to jackett and deluge
 # TODO: make downloaded files go to /media/incoming
 # TODO: split out .env files into individual ones so up -d won't restart everything
+# TODO: add watchtower https://github.com/v2tec/watchtower
+# TODO: split deluge into deluge and openvpn containers
+# TODO: watch for pihole update so it can run as non-root user
 
 services:
   # TODO: Done
@@ -15,13 +18,25 @@ services:
       - "traefik.port=8080"
     container_name: portal
     restart: unless-stopped
-    image: traefik:1.7.6-alpine
+    image: traefik:alpine
+    user: ${NATEFLIX_UID}:${DOCKER_GID}
     command:
-      - --docker.domain="${DOMAIN}"
+      - --docker.domain=${DOMAIN}
+      - "--entryPoints=Name:https Address::8443 TLS"
+      - "--entryPoints=Name:http Address::8888 Redirect.EntryPoint:https Redirect.Permanent:true"
+      - --defaultentrypoints=http,https
+      - --api
+      - --retry
+      - --metrics
+      - --ping
+      - --docker
+      - --docker.endpoint=unix:///var/run/docker.sock
+      - --docker.watch=true
+      - --docker.exposedbydefault=true
       - --configFile=/etc/traefik/config.toml
     ports:
-      - ${ADVERTISE_IP}:80:80/tcp
-      - ${ADVERTISE_IP}:443:443/tcp
+      - ${ADVERTISE_IP}:80:8888/tcp
+      - ${ADVERTISE_IP}:443:8443/tcp
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -30,25 +45,30 @@ services:
     env_file:
       - .env
 
-  # TODO: permissions on dirs
-  # TODO: figure out a way to use ssl or remove s on https in links
+  # TODO: DONE
+  # TODO: figure out a way to use ssl or remove s on https in links and add :8080
   jackett:
     labels:
       - "traefik.frontend.rule=Host:jackett.${DOMAIN}"
-      - "traefik.port=80"
+      - "traefik.port=8080"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
     container_name: jackett
     restart: unless-stopped
     image: jackett
-    build: ./jackett
+    build:
+      context: jackett
+      args:
+        PUID: ${NATEFLIX_UID}
+        PGID: ${NATEFLIX_GID}
+    stop_signal: SIGINT
     networks:
       default:
         aliases:
           - jackett.${DOMAIN}
     expose:
-      - 80
+      - 8080
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -57,7 +77,7 @@ services:
     env_file:
       - .env
 
-  # TODO: file permissions
+  # TODO: DONE DONE
   nzbget:
     labels:
       - "traefik.frontend.rule=Host:newz.${DOMAIN}"
@@ -68,14 +88,18 @@ services:
     container_name: nzbget
     restart: unless-stopped
     image: nzbget
-    build: ./nzbget
+    build:
+      context: nzbget
+      args:
+        PUID: ${NATEFLIX_UID}
+        PGID: ${NATEFLIX_GID}
     expose:
       - 6789
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget:/config
-      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
+      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
       - ${MEDIA_ROOT}:/data
     env_file:
       - .env
@@ -120,6 +144,9 @@ services:
       PLEX_CLAIM: ${PLEX_CLAIM:-}
       PLEX_UPDATE_CHANNEL: 8
       ADVERTISE_IP: https://${ADVERTISE_IP}:32400/
+      PLEX_UID: ${NATEFLIX_UID}
+      PLEX_GID: ${NATEFLIX_GID}
+      CHANGE_CONFIG_DIR_OWNERSHIP: "false"
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -142,11 +169,14 @@ services:
     image: tautulli/tautulli
     expose:
       - 8181
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plexstats:/config
-      - ${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Logs:/logs:ro
+      - ${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Logs:/plex_logs:ro
     env_file:
       - .env
 
@@ -159,7 +189,11 @@ services:
     container_name: ombi
     restart: unless-stopped
     image: ombi
-    build: ./ombi
+    build:
+      context: ombi
+      args:
+        PUID: ${NATEFLIX_UID}
+        PGID: ${NATEFLIX_GID}
     environment:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
@@ -172,6 +206,7 @@ services:
     env_file:
       - .env
 
+  # TODO: Done
   sonarr:
     labels:
       - "traefik.frontend.rule=Host:shows.${DOMAIN}"
@@ -182,19 +217,24 @@ services:
     container_name: sonarr
     restart: unless-stopped
     image: sonarr
-    build: sonarr
+    build:
+      context: sonarr
+      args:
+        PUID: ${NATEFLIX_UID}
+        PGID: ${NATEFLIX_GID}
     expose:
       - 8989
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/sonarr:/data
-      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
-      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
-      - ${MEDIA_ROOT}:/myfiles
+      - ${CONFIG_DIR}/sonarr:/config
+      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
+      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
+      - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
+  # TODO: Done
   radarr:
     labels:
       - "traefik.frontend.rule=Host:movies.${DOMAIN}"
@@ -205,19 +245,24 @@ services:
     container_name: radarr
     restart: unless-stopped
     image: radarr
-    build: radarr
+    build:
+      context: radarr
+      args:
+        PUID: ${NATEFLIX_UID}
+        PGID: ${NATEFLIX_GID}
     expose:
       - 7878
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/radarr:/data
-      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
-      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
-      - ${MEDIA_ROOT}:/myfiles
+      - ${CONFIG_DIR}/radarr:/config
+      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
+      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
+      - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
+  # TODO: Done
   lidarr:
     labels:
       - "traefik.frontend.rule=Host:music.${DOMAIN}"
@@ -228,21 +273,23 @@ services:
     container_name: lidarr
     restart: unless-stopped
     image: lidarr
-    build: lidarr
+    build:
+      context: lidarr
+      args:
+        PUID: ${NATEFLIX_UID}
+        PGID: ${NATEFLIX_GID}
     expose:
       - 8686
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/lidarr:/config
-      - ${CONFIG_DIR}/nzbget/downloads:/nzb-downloads
-      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
-      - ${MEDIA_ROOT}:/myfiles
+      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
+      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
+      - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
-  # TODO: run as non-root
-  # TODO: make dir names better
   # TODO: verify config
   deluge:
     labels:
@@ -257,6 +304,8 @@ services:
     build: deluge
     environment:
       VPN_REGION: ${VPN_REGION}
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     expose:
       - 8112
     dns:
@@ -264,18 +313,20 @@ services:
       - 209.222.18.218
     cap_add:
       - NET_ADMIN
+    devices:
+      - /dev/net/tun
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/deluge:/data
-      - ${CONFIG_DIR}/deluge-web:/data-web
+      - ${CONFIG_DIR}/deluge:/deluge-config
+      - ${CONFIG_DIR}/deluge-web:/deluge-web-config
       - ${CONFIG_DIR}/openvpn:/openvpn
-      - ${CONFIG_DIR}/deluge/downloads:/torrent-downloads
-      - ${MEDIA_ROOT}:/myfiles
+      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
+      - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
-  # TODO: Done
+  # TODO: BIG problem for volume permissions! need to make my own container
   pihole:
     labels:
       - "traefik.frontend.rule=Host:pihole.${DOMAIN}"

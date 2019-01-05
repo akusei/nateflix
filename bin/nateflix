@@ -4,6 +4,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# TODO: maybe make this a go app or python to handle more complicated arguments
 # TODO: various configurations using cli
 # TODO: add docker-compose up -d to nateflix script to handle changes and updates
 # TODO: look into what is being copied for backup and find out if those excluded

@@ -3,6 +3,7 @@
 # TODO: might need to check for /dev/dri and remove it from compose if not found
 # TODO: Test permissions and integration
 # TODO: create new user and make all containers run as non-root
+# TODO: provide an "undo" to rollback changes on error
 
 
 set -o errexit
@@ -12,6 +13,8 @@ set -o pipefail
 
 readonly LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
 declare -A SERVICE_NAMES
+
+# Display name:service name:1=login required
 SERVICE_NAMES["portal"]="Portal:portal:1"
 SERVICE_NAMES["nzbget"]="NZBGet:newz:1"
 SERVICE_NAMES["deluge"]="Deluge:torrents:1"
@@ -419,8 +422,17 @@ install()
   log "INFO" "Extracting files" 1
   extract "${WORKING_DIR}"
 
+  log "INFO" "Creating nateflix user" 1
+  useradd -M -r -s /bin/false nateflix || true
+  usermod -a -G docker nateflix || true
+
+  export NATEFLIX_UID=$(getent passwd nateflix | cut -d ':' -f 3)
+  export NATEFLIX_GID=$(getent group nateflix | cut -d ':' -f 3)
+  export DOCKER_GID=$(getent group docker | cut -d ':' -f 3)
+
   log "INFO" "Creating directories" 1
   mkdir -p "${INSTALL_DIR}"
+  mkdir -p "${CONFIG_DIR}"
   mkdir -p "${MEDIA_ROOT}"
 
   local configFile=.env
@@ -448,6 +460,15 @@ install()
   echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting ADVERTISE_IP to ${ADVERTISE_IP}" >> "${LOG_FILE}"
   echo ADVERTISE_IP=${ADVERTISE_IP} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting NATEFLIX_UID to ${NATEFLIX_UID}" >> "${LOG_FILE}"
+  echo NATEFLIX_UID=${NATEFLIX_UID} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting NATEFLIX_GID to ${NATEFLIX_GID}" >> "${LOG_FILE}"
+  echo NATEFLIX_GID=${NATEFLIX_GID} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting DOCKER_GID to ${DOCKER_GID}" >> "${LOG_FILE}"
+  echo DOCKER_GID=${DOCKER_GID} >> "${INSTALL_DIR}/${configFile}"
+
+  chown -R nateflix:nateflix "${INSTALL_DIR}"
+  chown -R nateflix:nateflix "${CONFIG_DIR}"
 }
 
 docker_stop()
@@ -479,14 +500,9 @@ configure_lidarr()
   echo
 
   log "INFO" "Configuring Lidarr"
-  local dbFile="${CONFIG_DIR}/lidarr/lidarr.db"
-  if [[ -f "${dbFile}" ]]; then
-    log "INFO" "Lidarr already configured; skipping..." 1
-    return
-  fi
-
   docker_start "lidarr" "" 200 "Lidarr" 30
 
+  local dbFile="${CONFIG_DIR}/lidarr/lidarr.db"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('autounmonitorpreviouslydownloadedtracks', 'True')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('deleteemptyfolders', 'True')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('copyusinghardlinks', 'False')"
@@ -507,12 +523,6 @@ configure_plex()
   echo "**************************"
   echo
 
-  log "INFO" "Configuring Plex"
-  if [[ -f "${CONFIG_DIR}/plex/config/Library/Application Support/Plex Media Server/Preferences.xml" ]]; then
-    log "INFO" "Plex already configured; skipping..." 1
-    return
-  fi
-
   log "INFO" "Getting Plex claim token" 1
   local result=$(curl -s --header "X-Plex-Client-Identifier: Nateflix" \
           --header "X-Plex-Product: Nateflix Installation" \
@@ -525,30 +535,6 @@ configure_plex()
     echo ${result} >> "${LOG_FILE}"
     exit 1;
   fi
-
-  docker_start "plex" "/web/index.html" 200 "Plex" 500
-}
-
-configure_nzbget()
-{
-  echo
-  echo
-  echo "**************************"
-  echo "*   CONFIGURING NZBGET   *"
-  echo "**************************"
-  echo
-
-  log "INFO" "Configuring NzbGet"
-  local configFile="${CONFIG_DIR}/nzbget/config/nzbget.conf"
-  if [[ -f "${configFile}" ]]; then
-    log "INFO" "NzbGet already configured; skipping..." 1
-    return
-  fi
-
-  docker_start "nzbget" "" 401 "" 10
-
-  sed -i -e "s/^\(ControlUsername\).\+$/\1=/g" "${configFile}"
-  sed -i -e "s/^\(ControlPassword\).\+$/\1=/g" "${configFile}"
 }
 
 make_api_call()
@@ -571,11 +557,6 @@ configure_ombi()
   echo
 
   log "INFO" "Configuring OMBI"
-  if [[ -f "${CONFIG_DIR}/ombi/Ombi.db" ]]; then
-    log "INFO" "OMBI already configured; skipping..." 1
-    return
-  fi
-
   docker_start "ombi" "" 200 "Ombi" 20 1
 
   local apiKey=$(grep -aioe '"ApiKey":"[^"]*' "${CONFIG_DIR}/ombi/Ombi.db" | cut -c 11-)
@@ -697,14 +678,9 @@ configure_sonarr()
   echo
 
   log "INFO" "Configuring Sonarr"
-  local dbFile="${CONFIG_DIR}/sonarr/nzbdrone.db"
-  if [[ -f "${dbFile}" ]]; then
-    log "INFO" "Sonarr already configured; skipping..." 1
-    return
-  fi
-
   docker_start "sonarr" "" 200 "Sonarr" 20
 
+  local dbFile="${CONFIG_DIR}/sonarr/nzbdrone.db"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"\", \"password\": \"\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
@@ -725,14 +701,9 @@ configure_radarr()
   echo
 
   log "INFO" "Configuring Radarr"
-  local dbFile="${CONFIG_DIR}/radarr/nzbdrone.db"
-  if [[ -f "${dbFile}" ]]; then
-    log "INFO" "Radarr already configured; skipping..." 1
-    return
-  fi
-
   docker_start "radarr" "" 200 "Radarr" 20
 
+  local dbFile="${CONFIG_DIR}/radarr/nzbdrone.db"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('cleanupmetadataimages', 'False')"
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'nzbget', 'Nzbget', '{\"host\": \"nzbget\", \"port\": 6789, \"username\": \"\", \"password\": \"\", \"tvCategory\": \"Series\", \"recentTvPriority\": 0, \"olderTvPriority\": 0, \"useSsl\": false}', 'NzbgetSettings')"
@@ -742,36 +713,6 @@ configure_radarr()
   sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" "${CONFIG_DIR}/radarr/config.xml"
   sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" "${CONFIG_DIR}/radarr/config.xml"
 }
-
-# configure_plexstats()
-# {
-#   echo
-#   echo
-#   echo "**************************"
-#   echo "* CONFIGURING PLEX STATS *"
-#   echo "**************************"
-#   echo
-#
-#   log "INFO" "Configuring Plex Stats"
-#   local configFile="${CONFIG_DIR}/plexstats/config.ini"
-#   if [[ -f "${configFile}" ]]; then
-#     log "INFO" "Plex Stats already configured; skipping..." 1
-#     return
-#   fi
-#
-#   docker_start "plexstats" "/welcome" 200 "Tautulli - Welcome" 500
-#
-#   sed -i -e "s/^\(pms_url\) =.\+$/\1 = http:\/\/plex:32400/g" "${configFile}"
-#   sed -i -e "s/^\(pms_url_manual\) =.\+$/\1 = 1/g" "${configFile}"
-#   sed -i -e "s/^\(pms_name\) =.\+$/\1 = ${DOMAIN}/g" "${configFile}"
-#   sed -i -e "s/^\(pms_plexpass\) =.\+$/\1 = 1/g" "${configFile}"
-#   sed -i -e "s/^\(pms_port\) =.\+$/\1 = 32400/g" "${configFile}"
-#   sed -i -e "s/^\(pms_platform\) =.\+$/\1 = Linux/g" "${configFile}"
-#   sed -i -e "s/^\(pms_ip\) =.\+$/\1 = plex/g" "${configFile}"
-#   sed -i -e "s/^\(launch_browser\) =.\+$/\1 = 0/g" "${configFile}"
-#   sed -i -e "s/^\(show_advanced_settings\) =.\+$/\1 = 1/g" "${configFile}"
-#   sed -i -e "s/^\(pms_logs_folder\) =.\+$/\1 = \/logs/g" "${configFile}"
-# }
 
 configure_deluge()
 {
@@ -783,10 +724,6 @@ configure_deluge()
   echo
 
   log "INFO" "Configuring Deluge"
-  if [[ -f "${CONFIG_DIR}/deluge/core.conf" && -f  "${CONFIG_DIR}/deluge-web/web.conf" ]]; then
-    log "INFO" "Deluge already configured; skipping..." 1
-    return
-  fi
 
   docker_start "deluge" "" 200 "Deluge" 20 1
   while [[ ! -f "${CONFIG_DIR}/deluge/auth" ]]; do
@@ -799,6 +736,9 @@ configure_deluge()
 
   # for some reason, this MUST be the last line in the file
   echo "::10" >> "${CONFIG_DIR}/deluge/auth"
+
+  chown nateflix:nateflix "${CONFIG_DIR}/deluge/auth"
+  chown nateflix:nateflix "${CONFIG_DIR}/openvpn/auth.txt"
 
   # this will set the password to blank
   sed -i -e "s/^\(.\+\"first_login\": \)true\(.\+\)$/\\1false\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
@@ -815,18 +755,13 @@ configure_portal()
   echo "**************************"
   echo
 
-  log "INFO" "Configuring Portal"
-  local configFile="${CONFIG_DIR}/portal/config.toml"
-  if [[ -f ${configFile} ]]; then
-    log "INFO" "Portal already configured; skipping..." 1
-    return
-  fi
-
   echo "Copying configuration..."
-  mkdir -p "${CONFIG_DIR}/portal"
-  cp "${INSTALL_DIR}/portal/config.toml" "${configFile}"
+  cp "${INSTALL_DIR}/portal/config.toml" "${CONFIG_DIR}/portal"
   echo "Creating users..."
   echo ${PORTAL_CREDS} > "${CONFIG_DIR}/portal/users"
+
+  chown nateflix:nateflix "${CONFIG_DIR}/portal/config.toml"
+  chown nateflix:nateflix "${CONFIG_DIR}/portal/users"
 }
 
 configure_pihole()
@@ -839,40 +774,62 @@ configure_pihole()
   echo
 
   log "INFO" "Configuring PiHole"
-  local configFile="${CONFIG_DIR}/pihole/dnsmasq/02-local.conf"
-  if [[ -f ${configFile} ]]; then
-    log "INFO" "PiHole already configured; skipping..." 1
-    return
-  fi
-
   echo "Configuring ${DOMAIN} DNS entries"
-  mkdir -p "${CONFIG_DIR}/pihole/dnsmasq"
-  echo "address=/${DOMAIN}/${ADVERTISE_IP}" > "${configFile}"
+  echo "address=/${DOMAIN}/${ADVERTISE_IP}" > "${CONFIG_DIR}/pihole/dnsmasq/02-local.conf"
+  chown -R nateflix:nateflix "${CONFIG_DIR}/pihole/dnsmasq/02-local.conf"
 }
 
-# configure_jackett()
-# {
-#   echo
-#   echo
-#   echo "**************************"
-#   echo "*  CONFIGURING JACKETT   *"
-#   echo "**************************"
-#   echo
-#
-#   log "INFO" "Configuring Jackett"
-#   local configFile="${CONFIG_DIR}/jackett/ServerConfig.json"
-#   if [[ -f ${configFile} ]]; then
-#     log "INFO" "Jackett already configured; skipping..." 1
-#     return
-#   fi
-#
-#   docker_start "jackett" "/UI/Dashboard" 200 "Jackett" 20
-#
-#   sed -i -e 's/\(^.*"AllowExternal": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
-#       -e 's/\(^.*"BlackholeDir": \).*[^,]\(,\)\{0,1\}$/\1"\/torrents"\2/g' \
-#       -e 's/\(^.*"UpdateDisabled": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
-#       -e 's/\(^.*"UpdatePrerelease": \).*[^,]\(,\)\{0,1\}$/\1false\2/g' "${configFile}"
-# }
+create_directories()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*  CREATING DIRECTORIES  *"
+  echo "**************************"
+  echo
+
+  log "INFO" "Creating Plex directories..." 1
+  mkdir -p "${CONFIG_DIR}/plex"
+
+  log "INFO" "Creating Deluge directories..." 1
+  mkdir -p "${CONFIG_DIR}/deluge"
+  mkdir -p "${CONFIG_DIR}/deluge-web"
+  mkdir -p "${CONFIG_DIR}/downloads/deluge"
+  mkdir -p "${CONFIG_DIR}/openvpn"
+
+  log "INFO" "Creating Jackett directories..." 1
+  mkdir -p "${CONFIG_DIR}/jackett"
+  mkdir -p "${CONFIG_DIR}/torrents"
+
+  log "INFO" "Creating Portal directories..." 1
+  mkdir -p "${CONFIG_DIR}/portal"
+
+  log "INFO" "Creating PiHole directories..." 1
+  mkdir -p "${CONFIG_DIR}/pihole/dnsmasq"
+  mkdir -p "${CONFIG_DIR}/pihole/config"
+
+  log "INFO" "Creating NZBGet directories..." 1
+  mkdir -p "${CONFIG_DIR}/nzbget"
+  mkdir -p "${CONFIG_DIR}/downloads/nzbget"
+
+  log "INFO" "Creating Lidarr directories..." 1
+  mkdir -p "${CONFIG_DIR}/lidarr"
+
+  log "INFO" "Creating Sonarr directories..." 1
+  mkdir -p "${CONFIG_DIR}/sonarr"
+
+  log "INFO" "Creating Radarr directories..." 1
+  mkdir -p "${CONFIG_DIR}/radarr"
+
+  log "INFO" "Creating OMBI directories..." 1
+  mkdir -p "${CONFIG_DIR}/ombi"
+
+  log "INFO" "Creating Plex Stats directories..." 1
+  mkdir -p "${CONFIG_DIR}/plexstats"
+
+  log "INFO" "Changing ownership of config directory" 1
+  chown -R nateflix:nateflix "${CONFIG_DIR}"
+}
 
 build_and_configure()
 {
@@ -890,17 +847,18 @@ build_and_configure()
     exit $?
   fi
 
+  create_directories
+
   configure_portal
-  # configure_jackett
   configure_pihole
-  configure_plex
-  configure_nzbget
   configure_lidarr
   configure_sonarr
   configure_radarr
   configure_ombi
-  # configure_plexstats
   configure_deluge
+  configure_plex
+
+  docker-compose up -d
 }
 
 show_complete()
@@ -914,7 +872,7 @@ show_complete()
   echo "You can also point your DNS to this server and your domain will resolve"
   echo
   echo "NOTE: For now, links generated in jackett will need to be changed manually"
-  echo "to 'http' instead of 'https'"
+  echo "to 'http' instead of 'https' and port 8080 will need to be added"
   echo
 
   local content=""
@@ -952,8 +910,6 @@ install
 
 # Build images and configure programs
 build_and_configure
-
-docker-compose up -d
 
 show_complete
 

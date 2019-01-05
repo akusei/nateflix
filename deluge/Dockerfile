@@ -1,5 +1,8 @@
 FROM python:3.7.1-alpine3.8
 
+ENV PUID=1000
+ENV PGID=1000
+
 
 # ADD REPO AND UPDATE
 RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
@@ -7,26 +10,19 @@ RUN echo "@testing http://nl.alpinelinux.org/alpine/edge/testing" >> /etc/apk/re
 		apk update
 
 # INSTALL DELUGE
-RUN apk add tzdata geoip py-pip boost-system@edge boost-python@edge \
-				    libssl1.1@edge deluge@testing && \
+RUN apk add --no-cache tzdata py-pip boost-system@edge boost-python@edge \
+				    su-exec libssl1.1@edge py-constantly@edge py-incremental@edge \
+						deluge@testing supervisor && \
 		pip install --upgrade pip && \
 		pip install --upgrade setuptools && \
 		pip2 install MarkupSafe incremental constantly packaging automat service_identity && \
-		/etc/periodic/monthly/geoip && \
-		mkdir /default && \
-		mkdir /data && \
-		mkdir /data-web && \
-		mkdir /torrent-downloads && \
-		mkdir /myfiles && \
-		mkdir /openvpn
+		mkdir /default
 
-# INSTALL SUPERVISOR
-RUN apk add supervisor
 COPY etc/ /etc/
 COPY config/ /default/
 
 # INSTALL OPENVPN
-RUN apk add openvpn ip6tables ufw@testing && \
+RUN apk add --no-cache openvpn ip6tables ufw@testing && \
 		cd /etc/openvpn && \
 		wget -O openvpn.zip "https://www.privateinternetaccess.com/openvpn/openvpn-ip.zip" && \
 		unzip openvpn.zip && \
@@ -36,7 +32,7 @@ RUN apk add openvpn ip6tables ufw@testing && \
 # CLEANUP
 RUN rm -rf /tmp/* /var/tmp/* /var/cache/apk/* /var/cache/distfiles/*
 
-COPY entrypoint.sh /usr/local/bin/entrypoint
+COPY entrypoint /usr/local/bin/entrypoint
 RUN chmod a+x /usr/local/bin/entrypoint
 
 
@@ -45,8 +41,8 @@ EXPOSE 8112/tcp
 EXPOSE 58946/tcp
 EXPOSE 58946/udp
 
-VOLUME /data /data-web /openvpn /torrent-downloads /myfiles
+VOLUME /deluge-config /deluge-web-config /openvpn /torrent-downloads /data
 
 
-ENTRYPOINT ["entrypoint"]
-CMD ["supervisord"]
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
+CMD ["supervisord", "-c", "/etc/supervisord.conf"]

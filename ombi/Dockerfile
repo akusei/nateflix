@@ -1,9 +1,13 @@
 FROM microsoft/dotnet:2.2.0-aspnetcore-runtime-stretch-slim
 # next release of OMBI will support alpine
 
+ARG PUID=1000
+ARG PGID=1000
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
+RUN groupadd -o -g ${PGID} ombi && \
+    useradd -r -o -u ${PUID} -g ombi ombi
 
 RUN apt-get update && \
 		apt-get install -y curl libicu-dev libunwind8 libcurl4-openssl-dev && \
@@ -11,15 +15,13 @@ RUN apt-get update && \
 		curl -o /tmp/linux.tgz -L "https://github.com/tidusjar/Ombi/releases/download/${VERSION}/linux.tar.gz" && \
 		mkdir -p /opt/Ombi && \
 		tar -zxvf /tmp/linux.tgz -C /opt/Ombi && \
-		chmod a+x /opt/Ombi/Ombi && \
-		mkdir -p /config && \
+		chown -R ombi:ombi /opt/Ombi && \
 		rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/*
-
 
 EXPOSE 5000
 VOLUME /config
 
 WORKDIR /opt/Ombi
+USER ombi
 
-
-ENTRYPOINT ["/opt/Ombi/Ombi", "--storage", "/data"]
+ENTRYPOINT ["/opt/Ombi/Ombi", "--storage", "/config"]
