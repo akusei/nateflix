@@ -6,11 +6,9 @@ version: '3.7'
 # TODO: make downloaded files go to /media/incoming
 # TODO: split out .env files into individual ones so up -d won't restart everything
 # TODO: add watchtower https://github.com/v2tec/watchtower
-# TODO: split deluge into deluge and openvpn containers
 # TODO: watch for pihole update so it can run as non-root user
 
 services:
-  # TODO: Done
   portal:
     labels:
       - "traefik.frontend.rule=Host:portal.${DOMAIN}"
@@ -45,8 +43,6 @@ services:
     env_file:
       - .env
 
-  # TODO: DONE
-  # TODO: figure out a way to use ssl or remove s on https in links and add :8080
   jackett:
     labels:
       - "traefik.frontend.rule=Host:jackett.${DOMAIN}"
@@ -56,28 +52,52 @@ services:
       - portal
     container_name: jackett
     restart: unless-stopped
-    image: jackett
-    build:
-      context: jackett
-      args:
-        PUID: ${NATEFLIX_UID}
-        PGID: ${NATEFLIX_GID}
-    stop_signal: SIGINT
+    image: linuxserver/jackett:latest
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     networks:
       default:
         aliases:
           - jackett.${DOMAIN}
     expose:
-      - 8080
+      - 9117
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/jackett:/config
-      - ${CONFIG_DIR}/torrents:/torrents
+      - ${CONFIG_DIR}/torrents:/downloads
     env_file:
       - .env
 
-  # TODO: DONE DONE
+  # TODO: Need to configure
+  hydra:
+    labels:
+      - "traefik.frontend.rule=Host:hydra.${DOMAIN}"
+      - "traefik.port=5076"
+      - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
+    depends_on:
+      - portal
+    container_name: hydra
+    restart: unless-stopped
+    image: linuxserver/hydra2
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
+    networks:
+      default:
+        aliases:
+          - hydra.${DOMAIN}
+    expose:
+      - 5076
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONFIG_DIR}/hydra:/config
+      - ${CONFIG_DIR}/torrents:/downloads
+    env_file:
+      - .env
+
   nzbget:
     labels:
       - "traefik.frontend.rule=Host:newz.${DOMAIN}"
@@ -87,26 +107,21 @@ services:
       - portal
     container_name: nzbget
     restart: unless-stopped
-    image: nzbget
-    build:
-      context: nzbget
-      args:
-        PUID: ${NATEFLIX_UID}
-        PGID: ${NATEFLIX_GID}
+    image: linuxserver/nzbget:latest
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     expose:
       - 6789
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget:/config
-      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
+      - ${CONFIG_DIR}/downloads/nzbget:/downloads
       - ${MEDIA_ROOT}:/data
     env_file:
       - .env
 
-  # TODO: file permissions
-  # TODO: figure out advertise ip
-  # TODO: do I want /data ro?
   plex:
     labels:
       - "traefik.frontend.rule=Host:watch.${DOMAIN}"
@@ -156,7 +171,6 @@ services:
     env_file:
       - .env
 
-  # TODO: Done
   plexstats:
     labels:
       - "traefik.frontend.rule=Host:stats.${DOMAIN}"
@@ -183,22 +197,17 @@ services:
   ombi:
     labels:
       - "traefik.frontend.rule=Host:request.${DOMAIN}"
-      - "traefik.port=5000"
+      - "traefik.port=3579"
     depends_on:
       - portal
     container_name: ombi
     restart: unless-stopped
-    image: ombi
-    build:
-      context: ombi
-      args:
-        PUID: ${NATEFLIX_UID}
-        PGID: ${NATEFLIX_GID}
+    image: linuxserver/ombi:latest
     environment:
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     expose:
-      - 5000
+      - 3579
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -206,7 +215,6 @@ services:
     env_file:
       - .env
 
-  # TODO: Done
   sonarr:
     labels:
       - "traefik.frontend.rule=Host:shows.${DOMAIN}"
@@ -216,25 +224,21 @@ services:
       - portal
     container_name: sonarr
     restart: unless-stopped
-    image: sonarr
-    build:
-      context: sonarr
-      args:
-        PUID: ${NATEFLIX_UID}
-        PGID: ${NATEFLIX_GID}
+    image: linuxserver/sonarr:latest
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     expose:
       - 8989
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/sonarr:/config
-      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
-      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
-      - ${MEDIA_ROOT}:/data
+      - ${CONFIG_DIR}/downloads:/downloads
+      - ${MEDIA_ROOT}/shows:/tv
     env_file:
       - .env
 
-  # TODO: Done
   radarr:
     labels:
       - "traefik.frontend.rule=Host:movies.${DOMAIN}"
@@ -244,25 +248,21 @@ services:
       - portal
     container_name: radarr
     restart: unless-stopped
-    image: radarr
-    build:
-      context: radarr
-      args:
-        PUID: ${NATEFLIX_UID}
-        PGID: ${NATEFLIX_GID}
+    image: linuxserver/radarr:latest
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     expose:
       - 7878
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/radarr:/config
-      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
-      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
-      - ${MEDIA_ROOT}:/data
+      - ${CONFIG_DIR}/downloads:/downloads
+      - ${MEDIA_ROOT}/movies:/movies
     env_file:
       - .env
 
-  # TODO: Done
   lidarr:
     labels:
       - "traefik.frontend.rule=Host:music.${DOMAIN}"
@@ -272,25 +272,43 @@ services:
       - portal
     container_name: lidarr
     restart: unless-stopped
-    image: lidarr
-    build:
-      context: lidarr
-      args:
-        PUID: ${NATEFLIX_UID}
-        PGID: ${NATEFLIX_GID}
+    image: linuxserver/lidarr:latest
+    environment:
+      PUID: ${NATEFLIX_UID}
+      PGID: ${NATEFLIX_GID}
     expose:
       - 8686
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/lidarr:/config
-      - ${CONFIG_DIR}/downloads/nzbget:/nzb-downloads
-      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
-      - ${MEDIA_ROOT}:/data
+      - ${CONFIG_DIR}/downloads:/downloads
+      - ${MEDIA_ROOT}/music:/music
     env_file:
       - .env
 
-  # TODO: verify config
+  vpn:
+    container_name: vpn
+    image: qmcgaw/private-internet-access:latest
+    cap_add:
+      - net_admin
+    restart: unless-stopped
+    devices:
+      - /dev/net/tun
+    ports:
+      - 58846:58846/tcp
+    environment:
+      REGION: ${VPN_REGION}
+      PROTOCOL: udp
+      ENCRYPTION: strong
+      USER: ${VPN_USERNAME}
+      PASSWORD: ${VPN_PASSWORD}
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+
   deluge:
     labels:
       - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
@@ -298,31 +316,21 @@ services:
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
+      - vpn
     container_name: deluge
     restart: unless-stopped
-    image: deluge
-    build: deluge
+    image: linuxserver/deluge
     environment:
-      VPN_REGION: ${VPN_REGION}
       PUID: ${NATEFLIX_UID}
       PGID: ${NATEFLIX_GID}
-    expose:
-      - 8112
-    dns:
-      - 209.222.18.222
-      - 209.222.18.218
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun
+    network_mode: service:vpn
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/deluge:/deluge-config
-      - ${CONFIG_DIR}/deluge-web:/deluge-web-config
-      - ${CONFIG_DIR}/openvpn:/openvpn
-      - ${CONFIG_DIR}/downloads/deluge:/torrent-downloads
-      - ${MEDIA_ROOT}:/data
+      - ${CONFIG_DIR}/deluge:/config
+      - ${CONFIG_DIR}/downloads/deluge:/downloads
+      - ${CONFIG_DIR}/torrents:/blackhole
+      - ${MEDIA_ROOT}/incoming:/data
     env_file:
       - .env
 

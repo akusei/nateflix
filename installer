@@ -14,7 +14,7 @@ set -o pipefail
 readonly LOG_FILE=/tmp/nateflix-$(date +%Y%m%d%H%M%S).log
 declare -A SERVICE_NAMES
 
-# Display name:service name:1=login required
+# Display name:hostname:1=login required
 SERVICE_NAMES["portal"]="Portal:portal:1"
 SERVICE_NAMES["nzbget"]="NZBGet:newz:1"
 SERVICE_NAMES["deluge"]="Deluge:torrents:1"
@@ -26,6 +26,7 @@ SERVICE_NAMES["jackett"]="Jackett:jackett:1"
 SERVICE_NAMES["sonarr"]="Sonarr:shows:1"
 SERVICE_NAMES["radarr"]="Radarr:movies:1"
 SERVICE_NAMES["lidarr"]="Lidarr:music:1"
+SERVICE_NAMES["hydra"]="Hydra:hydra:1"
 
 
 check_installed()
@@ -82,6 +83,14 @@ get_var()
 
   source "${config_file}"
   echo "${!var_name}"
+}
+
+set_json()
+{
+  declare filename="$1" path="$2" value="${3:-}"
+
+  jq "if has(\"${path}\") then .${path} = ${value} else . end" "${filename}" > "${WORKING_DIR}/jq.tmp"
+  mv "${WORKING_DIR}/jq.tmp" "${filename}"
 }
 
 version_compare()
@@ -272,7 +281,7 @@ install_dependencies()
 {
   echo "Installing dependencies..."
   ${PACKAGE_UPDATE}
-  ${PACKAGE_INSTALL} rsync sqlite3 curl openssl >> "${LOG_FILE}" 2>&1
+  ${PACKAGE_INSTALL} rsync sqlite3 curl openssl jq >> "${LOG_FILE}" 2>&1
 }
 
 get_plex_token()
@@ -426,6 +435,13 @@ install()
   useradd -M -r -s /bin/false nateflix || true
   usermod -a -G docker nateflix || true
 
+  if [[ ! -f /usr/local/bin/ctop ]]; then
+    log "INFO" "Installing ctop" 1
+    local version=$(curl --silent "https://api.github.com/repos/bcicen/ctop/releases/latest" | grep -ioe '"tag_name": "[^"]*' | cut -c 14-)
+    curl --silent -o /usr/local/bin/ctop -L "https://github.com/bcicen/ctop/releases/download/${version}/ctop-0.7.1-linux-amd64"
+    chmod a+x /usr/local/bin/ctop
+  fi
+
   export NATEFLIX_UID=$(getent passwd nateflix | cut -d ':' -f 3)
   export NATEFLIX_GID=$(getent group nateflix | cut -d ':' -f 3)
   export DOCKER_GID=$(getent group docker | cut -d ':' -f 3)
@@ -454,18 +470,25 @@ install()
   echo MEDIA_ROOT=${MEDIA_ROOT} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting INSTALL_DIR to ${INSTALL_DIR}" >> "${LOG_FILE}"
   echo INSTALL_DIR=${INSTALL_DIR} >> "${INSTALL_DIR}/${configFile}"
+
   echo "Setting DOMAIN to ${DOMAIN}" >> "${LOG_FILE}"
   echo DOMAIN=${DOMAIN} >> "${INSTALL_DIR}/${configFile}"
-  echo "Setting VPN_REGION to ${VPN_REGION}" >> "${LOG_FILE}"
-  echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting ADVERTISE_IP to ${ADVERTISE_IP}" >> "${LOG_FILE}"
   echo ADVERTISE_IP=${ADVERTISE_IP} >> "${INSTALL_DIR}/${configFile}"
+
   echo "Setting NATEFLIX_UID to ${NATEFLIX_UID}" >> "${LOG_FILE}"
   echo NATEFLIX_UID=${NATEFLIX_UID} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting NATEFLIX_GID to ${NATEFLIX_GID}" >> "${LOG_FILE}"
   echo NATEFLIX_GID=${NATEFLIX_GID} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting DOCKER_GID to ${DOCKER_GID}" >> "${LOG_FILE}"
   echo DOCKER_GID=${DOCKER_GID} >> "${INSTALL_DIR}/${configFile}"
+
+  echo "Setting VPN_REGION to ${VPN_REGION}" >> "${LOG_FILE}"
+  echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting VPN_USERNAME to ${VPN_USERNAME}" >> "${LOG_FILE}"
+  echo VPN_USERNAME=${VPN_USERNAME} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting VPN_PASSWORD to ${VPN_PASSWORD}" >> "${LOG_FILE}"
+  echo VPN_PASSWORD=${VPN_PASSWORD} >> "${INSTALL_DIR}/${configFile}"
 
   chown -R nateflix:nateflix "${INSTALL_DIR}"
   chown -R nateflix:nateflix "${CONFIG_DIR}"
@@ -510,8 +533,6 @@ configure_lidarr()
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'deluge','Deluge','{\"host\":\"deluge\",\"port\":8112,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"lidarr\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','DelugeSettings')"
   sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnAlbumDownload) values ('plex',0,1,'{\"host\":\"plex\",\"port\":32400,\"username\":\"${PLEX_USERNAME}\",\"password\":\"${PLEX_PASSWORD}\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1)"
-  sed -i -e "s/<\/Config>/<LaunchBrowser>False<\/LaunchBrowser>\n<\/Config>/" "${CONFIG_DIR}/lidarr/config.xml"
-  sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" "${CONFIG_DIR}/lidarr/config.xml"
 }
 
 configure_plex()
@@ -687,8 +708,6 @@ configure_sonarr()
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"\", \"tvCategory\": \"tv-sonarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 "${dbFile}" "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,StandardEpisodeFormat,DailyEpisodeFormat,SeasonFolderFormat,SeriesFolderFormat,AnimeEpisodeFormat,ReplaceIllegalCharacters) values (0,1,'{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}','{Series Title} - {Air-Date} - {Episode Title} {Quality Full}','Season {season}','{Series Title}','{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}',1)"
-  sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" "${CONFIG_DIR}/sonarr/config.xml"
-  sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" "${CONFIG_DIR}/sonarr/config.xml"
 }
 
 configure_radarr()
@@ -710,10 +729,9 @@ configure_radarr()
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1, 'deluge', 'Deluge', '{\"host\": \"deluge\", \"port\": 8112, \"password\": \"\", \"tvCategory\": \"radarr\", \"recentTvPriority\": 0, \"addPaused\": false, \"olderTvPriority\": 0, \"useSsl\": false}', 'DelugeSettings')"
   sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename) values ('pms', 0, 1, '{\"host\": \"plex\", \"port\": 32400, \"username\": \"${PLEX_USERNAME}\", \"password\": \"${PLEX_PASSWORD}\", \"updateLibrary\": true, \"useSsl\": false, \"isValid\": true}', 'PlexServer', 'PlexServerSettings', 1, '[]', 1)"
   sqlite3 "${dbFile}" "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,ReplaceIllegalCharacters,StandardMovieFormat,MovieFolderFormat,ColonReplacementFormat) values (0,1,1,'{Movie Title} {Release Year} {Quality Title}','{Movie Title} ({Release Year})',1)"
-  sed -i -e "s/<LaunchBrowser>True<\/LaunchBrowser>/<LaunchBrowser>False<\/LaunchBrowser>/" "${CONFIG_DIR}/radarr/config.xml"
-  sed -i -e "s/<\/Config>/<AnalyticsEnabled>False<\/AnalyticsEnabled>\n<\/Config>/" "${CONFIG_DIR}/radarr/config.xml"
 }
 
+# TODO: change all sed calls to set_json
 configure_deluge()
 {
   echo
@@ -725,25 +743,43 @@ configure_deluge()
 
   log "INFO" "Configuring Deluge"
 
+  # echo ${VPN_USERNAME} > "${CONFIG_DIR}/vpn/auth.conf"
+  # echo ${VPN_PASSWORD} >> "${CONFIG_DIR}/vpn/auth.conf"
+  # chown -R nateflix:nateflix "${CONFIG_DIR}/vpn"
+
   docker_start "deluge" "" 200 "Deluge" 20 1
   while [[ ! -f "${CONFIG_DIR}/deluge/auth" ]]; do
     sleep 1s
   done
   docker_stop "deluge"
 
-  echo ${VPN_USERNAME} > "${CONFIG_DIR}/openvpn/auth.txt"
-  echo ${VPN_PASSWORD} >> "${CONFIG_DIR}/openvpn/auth.txt"
-
   # for some reason, this MUST be the last line in the file
   echo "::10" >> "${CONFIG_DIR}/deluge/auth"
-
   chown nateflix:nateflix "${CONFIG_DIR}/deluge/auth"
-  chown nateflix:nateflix "${CONFIG_DIR}/openvpn/auth.txt"
+
+  cp "${INSTALL_DIR}/deluge/label.conf" "${CONFIG_DIR}/deluge/label.conf"
+  chown nateflix:nateflix "${CONFIG_DIR}/deluge/label.conf"
+  rm -rf "${INSTALL_DIR}/deluge" > /dev/null
 
   # this will set the password to blank
-  sed -i -e "s/^\(.\+\"first_login\": \)true\(.\+\)$/\\1false\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
-  sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1bc564fecb4c2b1b9380995b28ef2e85298bbfbd1\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
-  sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1b8db8b895fccd7f9aa156fe82ff35744f3f60224\\2/g" "${CONFIG_DIR}/deluge-web/web.conf"
+  set_json "${CONFIG_DIR}/deluge/web.conf" "first_login" "false"
+  set_json "${CONFIG_DIR}/deluge/web.conf" "pwd_sha1" '"bc564fecb4c2b1b9380995b28ef2e85298bbfbd1"'
+  set_json "${CONFIG_DIR}/deluge/web.conf" "pwd_salt" '"b8db8b895fccd7f9aa156fe82ff35744f3f60224"'
+  # sed -i -e "s/^\(.\+\"first_login\": \)true\(.\+\)$/\\1false\\2/g" "${CONFIG_DIR}/deluge/web.conf"
+  # sed -i -e "s/^\(.\+\"pwd_sha1\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1bc564fecb4c2b1b9380995b28ef2e85298bbfbd1\\2/g" "${CONFIG_DIR}/deluge/web.conf"
+  # sed -i -e "s/^\(.\+\"pwd_salt\": \"\)[a-f0-9]\{40\}\(.\+\)$/\\1b8db8b895fccd7f9aa156fe82ff35744f3f60224\\2/g" "${CONFIG_DIR}/deluge/web.conf"
+
+  set_json "${CONFIG_DIR}/deluge/core.conf" "enabled_plugins" '["Label"]'
+  set_json "${CONFIG_DIR}/deluge/core.conf" "stop_seed_at_ratio" "true"
+  set_json "${CONFIG_DIR}/deluge/core.conf" "stop_seed_ratio" "0.0"
+  set_json "${CONFIG_DIR}/deluge/core.conf" "seed_time_ratio_limit" "0.0"
+  set_json "${CONFIG_DIR}/deluge/core.conf" "seed_time_limit" "0"
+  set_json "${CONFIG_DIR}/deluge/core.conf" "share_ratio_limit" "0.0"
+  set_json "${CONFIG_DIR}/deluge/core.conf" "move_completed_path" '"/downloads"'
+  set_json "${CONFIG_DIR}/deluge/core.conf" "torrentfiles_location" '"/downloads"'
+  set_json "${CONFIG_DIR}/deluge/core.conf" "download_location" '"/downloads"'
+  set_json "${CONFIG_DIR}/deluge/core.conf" "autoadd_location" '"/blackhole"'
+  set_json "${CONFIG_DIR}/deluge/core.conf" "autoadd_enable" "true"
 }
 
 configure_portal()
@@ -779,6 +815,57 @@ configure_pihole()
   chown -R nateflix:nateflix "${CONFIG_DIR}/pihole/dnsmasq/02-local.conf"
 }
 
+configure_jackett()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*  CONFIGURING JACKETT   *"
+  echo "**************************"
+  echo
+
+  log "INFO" "Configuring Jackett"
+
+  docker_start "jackett" "/UI/Dashboard" 200 "Jackett" 50
+
+  local config_file="${CONFIG_DIR}/jackett/Jackett/ServerConfig.json"
+  sed -i -e 's/\(^.*"AllowExternal": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
+      -e 's/\(^.*"Port": \).*[^,]\(,\)\{0,1\}$/\19117\2/g' \
+      -e 's/\(^.*"BlackholeDir": \).*[^,]\(,\)\{0,1\}$/\1"\/torrents"\2/g' \
+      -e 's/\(^.*"UpdateDisabled": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
+      -e 's/\(^.*"UpdatePrerelease": \).*[^,]\(,\)\{0,1\}$/\1false\2/g' "${config_file}"
+}
+
+configure_nzbget()
+{
+  echo
+  echo
+  echo "**************************"
+  echo "*   CONFIGURING NZBGET   *"
+  echo "**************************"
+  echo
+
+  log "INFO" "Configuring NZBGet"
+
+  local config_file="${CONFIG_DIR}/nzbget/nzbget.conf"
+  docker-compose up -d nzbget
+  while [[ ! -f ${config_file} ]]; do
+    sleep 1s
+  done
+  docker stop nzbget
+
+  sed -i -e "s#\(ScriptDir=\).*#\1/config/scripts#g" \
+      -e "s#\(LockFile=\).*#\1/tmp/nzbget.lock#g" \
+      -e "s#\(LogFile=\).*#\1/config/nzbget.log#g" \
+      -e "s#\(DupeCheck=\).*#\1no#g" \
+      -e "s#\(HealthCheck=\).*#\1delete#g" \
+      -e "s#\(NzbCleanupDisk=\).*#\1yes#g" \
+      -e "s#\(CrashDump=\).*#\1no#g" \
+      -e "s#\(ControlUsername=\).*#\1#g" \
+      -e "s#\(ControlPassword=\).*#\1#g" \
+      -e "s#\(ParCleanupQueue=\).*#\1yes#g" "${config_file}"
+}
+
 create_directories()
 {
   echo
@@ -795,7 +882,7 @@ create_directories()
   mkdir -p "${CONFIG_DIR}/deluge"
   mkdir -p "${CONFIG_DIR}/deluge-web"
   mkdir -p "${CONFIG_DIR}/downloads/deluge"
-  mkdir -p "${CONFIG_DIR}/openvpn"
+  # mkdir -p "${CONFIG_DIR}/vpn"
 
   log "INFO" "Creating Jackett directories..." 1
   mkdir -p "${CONFIG_DIR}/jackett"
@@ -810,6 +897,7 @@ create_directories()
 
   log "INFO" "Creating NZBGet directories..." 1
   mkdir -p "${CONFIG_DIR}/nzbget"
+  mkdir -p "${CONFIG_DIR}/nzbget/scripts"
   mkdir -p "${CONFIG_DIR}/downloads/nzbget"
 
   log "INFO" "Creating Lidarr directories..." 1
@@ -841,21 +929,22 @@ build_and_configure()
   echo
 
   export PLEX_CLAIM=""
-  docker-compose build --no-cache >> "${LOG_FILE}"
-  if [[ $? > 0 ]]; then
-    echo "Error building images check log file ${LOG_FILE} for details"
-    exit $?
-  fi
+  # docker-compose build --no-cache deluge >> "${LOG_FILE}"
+  # if [[ $? > 0 ]]; then
+  #   echo "Error building images check log file ${LOG_FILE} for details"
+  #   exit $?
+  # fi
 
   create_directories
 
   configure_portal
   configure_pihole
+  configure_nzbget
+  configure_deluge
   configure_lidarr
   configure_sonarr
   configure_radarr
   configure_ombi
-  configure_deluge
   configure_plex
 
   docker-compose up -d

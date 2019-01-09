@@ -357,6 +357,7 @@ remove()
   docker-compose down --rmi all -v --remove-orphans
   rm -rf /usr/local/sbin/nateflix > /dev/null
   rm -rf "${SCRIPT_DIR}" > /dev/null
+  rm -rf /usr/local/bin/ctop > /dev/null
 
   echo
   if [[ ${force} == "--nuke" ]]; then
@@ -366,6 +367,18 @@ remove()
     echo "Nateflix has been removed. Configuration data in ${config_dir} was not removed"
   fi
   echo
+}
+
+ctop_command()
+{
+  if [[ ! -f /usr/local/bin/ctop ]]; then
+    echo "ctop is missing"
+    local version=$(curl --silent "https://api.github.com/repos/bcicen/ctop/releases/latest" | grep -ioe '"tag_name": "[^"]*' | cut -c 14-)
+    curl --silent -o /usr/local/bin/ctop -L "https://github.com/bcicen/ctop/releases/download/${version}/ctop-0.7.1-linux-amd64"
+    chmod a+x /usr/local/bin/ctop
+  fi
+
+  ctop "$@"
 }
 
 show_help ()
@@ -445,6 +458,11 @@ case "${1:-}" in
 
 	"remove")
 		remove "${2:-}"
+    exit 0;;
+
+  "top")
+    shift
+    ctop_command "$@"
     exit 0;;
 
 	"--help")
