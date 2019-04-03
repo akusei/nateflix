@@ -4,9 +4,6 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# TODO: maybe make this a go app or python to handle more complicated arguments
-# TODO: various configurations using cli
-# TODO: add docker-compose up -d to nateflix script to handle changes and updates
 # TODO: look into what is being copied for backup and find out if those excluded
 # items are needed outside of the container (persistent)
 
@@ -77,6 +74,12 @@ print_service_status()
 control_services()
 {
   declare action="$1" services="${@:2}"
+
+  if [[ $action == "restart" ]]; then
+    docker-compose stop ${services}
+    action="start"
+  fi
+
   docker-compose "${action}" ${services}
 }
 
@@ -316,22 +319,16 @@ update_service()
   fi
 
   for service in ${services}; do
-    local image_name="${service}"
-    case "${service}" in
-    	"plex")
-        image_name="plexinc/pms-docker";;
-      "plexstats")
-        image_name="tautulli/tautulli";;
-      "portal")
-        image_name="traefik";;
-    esac
+    local data=$(docker-compose images ${service} | tail -n +3)
+    local image_name="$(echo ${data} | tr -s ' ' '\t' | cut -f 2)"
+    image_name="${image_name}:$(echo ${data} | tr -s ' ' '\t' | cut -f 3)"
 
-    docker-compose stop ${service}
-    docker-compose rm -svf ${service}
-    docker rmi --force ${image_name}
-    docker-compose build --no-cache ${service}
-    docker-compose up -d ${service}
+    docker pull ${image_name}
   done
+
+  docker-compose stop ${services}
+  docker-compose rm -svf ${services}
+  docker-compose up -d ${services}
 }
 
 remove()
@@ -374,7 +371,7 @@ ctop_command()
   if [[ ! -f /usr/local/bin/ctop ]]; then
     echo "ctop is missing"
     local version=$(curl --silent "https://api.github.com/repos/bcicen/ctop/releases/latest" | grep -ioe '"tag_name": "[^"]*' | cut -c 14-)
-    curl --silent -o /usr/local/bin/ctop -L "https://github.com/bcicen/ctop/releases/download/${version}/ctop-0.7.1-linux-amd64"
+    curl --silent -o /usr/local/bin/ctop -L "https://github.com/bcicen/ctop/releases/download/${version}/ctop-${version}-linux-amd64"
     chmod a+x /usr/local/bin/ctop
   fi
 
@@ -394,6 +391,7 @@ show_help ()
 	echo "   stop      Stop all/specific Nateflix services"
 	echo "   status    Display status of all/specific Nateflix services"
 	echo "   upgrade   Upgrade all/specific Nateflix service"
+  echo "   top       show top-like nateflix status"
 	echo "   remove    Uninstall Nateflix"
 	echo "   --help    This help information"
 	echo

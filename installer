@@ -2,7 +2,6 @@
 
 # TODO: might need to check for /dev/dri and remove it from compose if not found
 # TODO: Test permissions and integration
-# TODO: create new user and make all containers run as non-root
 # TODO: provide an "undo" to rollback changes on error
 
 
@@ -281,7 +280,7 @@ install_dependencies()
 {
   echo "Installing dependencies..."
   ${PACKAGE_UPDATE}
-  ${PACKAGE_INSTALL} rsync sqlite3 curl openssl jq >> "${LOG_FILE}" 2>&1
+  ${PACKAGE_INSTALL} rsync sqlite3 curl openssl jq tzdata >> "${LOG_FILE}" 2>&1
 }
 
 get_plex_token()

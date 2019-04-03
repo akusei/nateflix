@@ -1,16 +1,11 @@
 version: '3.7'
 
-# TODO: rename directories to be more constistent
-# TODO: add user permissions
-# TODO: add torrent "black hole" dir to jackett and deluge
-# TODO: make downloaded files go to /media/incoming
-# TODO: split out .env files into individual ones so up -d won't restart everything
-# TODO: add watchtower https://github.com/v2tec/watchtower
 # TODO: watch for pihole update so it can run as non-root user
 
 services:
   portal:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:portal.${DOMAIN}"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
       - "traefik.port=8080"
@@ -45,6 +40,7 @@ services:
 
   jackett:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:jackett.${DOMAIN}"
       - "traefik.port=8080"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -70,9 +66,9 @@ services:
     env_file:
       - .env
 
-  # TODO: Need to configure
   hydra:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:hydra.${DOMAIN}"
       - "traefik.port=5076"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -100,6 +96,7 @@ services:
 
   nzbget:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:newz.${DOMAIN}"
       - "traefik.port=6789"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -124,6 +121,7 @@ services:
 
   plex:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:watch.${DOMAIN}"
       - "traefik.port=32400"
     depends_on:
@@ -173,6 +171,7 @@ services:
 
   plexstats:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:stats.${DOMAIN}"
       - "traefik.port=8181"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -196,6 +195,7 @@ services:
 
   ombi:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:request.${DOMAIN}"
       - "traefik.port=3579"
     depends_on:
@@ -217,6 +217,7 @@ services:
 
   sonarr:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:shows.${DOMAIN}"
       - "traefik.port=8989"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -241,6 +242,7 @@ services:
 
   radarr:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:movies.${DOMAIN}"
       - "traefik.port=7878"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -265,6 +267,7 @@ services:
 
   lidarr:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:music.${DOMAIN}"
       - "traefik.port=8686"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -288,6 +291,9 @@ services:
       - .env
 
   vpn:
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "autoheal=true"
     container_name: vpn
     image: qmcgaw/private-internet-access:latest
     cap_add:
@@ -311,14 +317,22 @@ services:
 
   deluge:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:torrents.${DOMAIN}"
       - "traefik.port=8112"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
+      - "autoheal=true"
     depends_on:
       - portal
       - vpn
     container_name: deluge
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--head", "http://www.google.com"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 1
+      start_period: 40s
     image: linuxserver/deluge
     environment:
       PUID: ${NATEFLIX_UID}
@@ -334,9 +348,24 @@ services:
     env_file:
       - .env
 
-  # TODO: BIG problem for volume permissions! need to make my own container
+  autoheal:
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    restart: unless-stopped
+    container_name: autoheal
+    image: willfarrell/autoheal
+    user: ${NATEFLIX_UID}:${DOCKER_GID}
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 5
+      AUTOHEAL_START_PERIOD: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # TODO: BIG problem for volume permissions! need to make my own image
   pihole:
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:pihole.${DOMAIN}"
       - "traefik.port=80"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
@@ -368,3 +397,12 @@ services:
       - /etc/timezone:/etc/timezone:ro
     env_file:
       - .env
+
+  watchtower:
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    image: v2tec/watchtower
+    container_name: watchtower
+    command: --label-enable --cleanup --schedule "0 0 4 * * *"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
