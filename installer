@@ -881,7 +881,7 @@ create_directories()
   mkdir -p "${CONFIG_DIR}/deluge"
   mkdir -p "${CONFIG_DIR}/deluge-web"
   mkdir -p "${CONFIG_DIR}/downloads/deluge"
-  # mkdir -p "${CONFIG_DIR}/vpn"
+  mkdir -p "${CONFIG_DIR}/vpn"
 
   log "INFO" "Creating Jackett directories..." 1
   mkdir -p "${CONFIG_DIR}/jackett"
