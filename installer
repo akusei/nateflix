@@ -531,7 +531,8 @@ configure_lidarr()
   sqlite3 "${dbFile}" "insert into Config (Key,Value) values ('removecompleteddownloads', 'True')"
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'deluge','Deluge','{\"host\":\"deluge\",\"port\":8112,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"lidarr\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','DelugeSettings')"
-  sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnAlbumDownload) values ('plex',0,1,'{\"host\":\"plex\",\"port\":32400,\"username\":\"${PLEX_USERNAME}\",\"password\":\"${PLEX_PASSWORD}\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1)"
+  # sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnAlbumDownload) values ('plex',0,1,'{\"host\":\"plex\",\"port\":32400,\"username\":\"${PLEX_USERNAME}\",\"password\":\"${PLEX_PASSWORD}\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1)"
+  sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnReleaseImport,OnHealthIssue,IncludeHealthWarnings,OnDownloadFailure,OnImportFailure,OnTrackRetag) values ('plex',0,'{\"host\":\"plex\",\"port\":32400,\"authToken"":\"\",\"signIn\":\"startOAuth\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1,0,0,0,0,1)"
 }
 
 configure_plex()
@@ -688,6 +689,7 @@ EOD
   docker_stop "ombi"
 }
 
+
 configure_sonarr()
 {
   echo
@@ -730,7 +732,6 @@ configure_radarr()
   sqlite3 "${dbFile}" "insert into NamingConfig (MultiEpisodeStyle,RenameEpisodes,ReplaceIllegalCharacters,StandardMovieFormat,MovieFolderFormat,ColonReplacementFormat) values (0,1,1,'{Movie Title} {Release Year} {Quality Title}','{Movie Title} ({Release Year})',1)"
 }
 
-# TODO: change all sed calls to set_json
 configure_deluge()
 {
   echo
@@ -828,11 +829,17 @@ configure_jackett()
   docker_start "jackett" "/UI/Dashboard" 200 "Jackett" 50
 
   local config_file="${CONFIG_DIR}/jackett/Jackett/ServerConfig.json"
-  sed -i -e 's/\(^.*"AllowExternal": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
-      -e 's/\(^.*"Port": \).*[^,]\(,\)\{0,1\}$/\19117\2/g' \
-      -e 's/\(^.*"BlackholeDir": \).*[^,]\(,\)\{0,1\}$/\1"\/torrents"\2/g' \
-      -e 's/\(^.*"UpdateDisabled": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
-      -e 's/\(^.*"UpdatePrerelease": \).*[^,]\(,\)\{0,1\}$/\1false\2/g' "${config_file}"
+  set_json "${config_file}" "AllowExternal" "true"
+  set_json "${config_file}" "Port" "9117"
+  set_json "${config_file}" "BlackholeDir" "/torrents"
+  set_json "${config_file}" "UpdateDisabled" "true"
+  set_json "${config_file}" "UpdatePrerelease" "false"
+
+  # sed -i -e 's/\(^.*"AllowExternal": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
+  #     -e 's/\(^.*"Port": \).*[^,]\(,\)\{0,1\}$/\19117\2/g' \
+  #     -e 's/\(^.*"BlackholeDir": \).*[^,]\(,\)\{0,1\}$/\1"\/torrents"\2/g' \
+  #     -e 's/\(^.*"UpdateDisabled": \).*[^,]\(,\)\{0,1\}$/\1true\2/g' \
+  #     -e 's/\(^.*"UpdatePrerelease": \).*[^,]\(,\)\{0,1\}$/\1false\2/g' "${config_file}"
 }
 
 configure_nzbget()
@@ -881,10 +888,9 @@ create_directories()
   mkdir -p "${CONFIG_DIR}/deluge"
   mkdir -p "${CONFIG_DIR}/deluge-web"
   mkdir -p "${CONFIG_DIR}/downloads/deluge"
-  mkdir -p "${CONFIG_DIR}/vpn"
 
   log "INFO" "Creating Jackett directories..." 1
-  mkdir -p "${CONFIG_DIR}/jackett"
+  mkdir -p "${CONFIG_DIR}/Jackett"
   mkdir -p "${CONFIG_DIR}/torrents"
 
   log "INFO" "Creating Portal directories..." 1
@@ -941,6 +947,7 @@ build_and_configure()
   configure_nzbget
   configure_deluge
   configure_lidarr
+  configure_jackett
   configure_sonarr
   configure_radarr
   configure_ombi

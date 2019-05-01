@@ -42,7 +42,7 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "traefik.frontend.rule=Host:jackett.${DOMAIN}"
-      - "traefik.port=8080"
+      - "traefik.port=9117"
       - "traefik.frontend.auth.basic.usersFile=/etc/traefik/users"
     depends_on:
       - portal
@@ -61,7 +61,7 @@ services:
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-      - ${CONFIG_DIR}/jackett:/config
+      - ${CONFIG_DIR}:/config
       - ${CONFIG_DIR}/torrents:/downloads
     env_file:
       - .env

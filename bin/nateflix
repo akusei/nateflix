@@ -4,9 +4,24 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# TODO: look into what is being copied for backup and find out if those excluded
-# items are needed outside of the container (persistent)
+# TODO: huge bug with relative paths passed in as params since this is being
+# cd'd into the script dir
 
+# r|name|src_root|src|exclusions
+# c|name|root|src:dest,src:dest
+declare -a BACKUPS
+BACKUPS=("r|portal|portal")
+BACKUPS+=("r|jackett|jackett|Jackett/|log*")
+BACKUPS+=("c|hydra|hydra|nzbhydra.yml,database/nzbhydra.mv.db")
+BACKUPS+=("r|nzbget|nzbget||nzbget.log")
+BACKUPS+=("r|plex|plex|Library/Application Support/Plex Media Server/|Cache,Crash Reports,Logs,plexmediaserver.pid")
+BACKUPS+=("c|plexstats|plexstats|config.ini,tautulli.db")
+BACKUPS+=("c|ombi|ombi|Ombi.db,Schedules.db")
+BACKUPS+=("c|sonarr|sonarr|config.xml,nzbdrone.db")
+BACKUPS+=("c|radarr|radarr|config.xml,nzbdrone.db")
+BACKUPS+=("c|lidarr|lidarr|config.xml,lidarr.db")
+BACKUPS+=("r|deluge|deluge||deluged.log,deluged.pid,state,icons,dht.state,session.state,ssl,hostlist.conf.1.2")
+BACKUPS+=("r|pihole|pihole")
 
 readonly COLOR_NORM="$(printf '\033[0m')"
 readonly COLOR_BOLD="$(printf '\033[0;1m')"
@@ -30,12 +45,17 @@ get_var()
 {
   declare file="$1" name="$2"
 
+  local oldIFS=${IFS}
+
   while IFS='=' read -r var value; do
     if [[ ${var} == ${name} ]]; then
+      IFS=${oldIFS}
       echo "${value}"
       return 0
     fi
   done < "${file}"
+
+  IFS=${oldIFS}
 
   echo ""
   return 1
@@ -90,224 +110,171 @@ backup()
   local config_dir=$(get_var "./.env" "CONFIG_DIR")
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
-	if [[ ! -d ${config_dir} ]]; then
-		echo "No data to backup"
-		return 1
-	fi
+  if [[ ! -d ${config_dir} ]]; then
+    echo "No data to backup"
+    return 1
+  fi
 
-	if [[ ! -d ${backup_dir} ]]; then
-		echo "Backup location ${backup_dir} does not exist or is not a directory"
-		return 1
-	fi
+  if [[ ! -d ${backup_dir} ]]; then
+    echo "Backup location ${backup_dir} does not exist or is not a directory"
+    return 1
+  fi
 
   local backupFile="$(realpath "${backup_dir}")/${backup_file}"
   WORKING_DIR=$(mktemp -d)
 
   # # replace double slashes with single so we don't need to trim
-	# local backupFile=$(echo "${backup_dir}/${backup_file}" | sed s#//*#/#g)
+  # local backupFile=$(echo "${backup_dir}/${backup_file}" | sed s#//*#/#g)
 
-	if [[ -f ${backupFile} ]]; then
-		echo "${backupFile} already exists"
-		return 1
-	fi
+  if [[ -f ${backupFile} ]]; then
+    echo "${backupFile} already exists"
+    return 1
+  fi
 
-	local backupDir="${WORKING_DIR}/nateflix"
+  local backupDir="${WORKING_DIR}/nateflix"
 
-	echo "Stopping Nateflix"
-	control_services stop
+  echo "Stopping Nateflix"
+  control_services stop
   echo
 
-  # TODO: Backup Portal, pihole and jackett
+  local longest=0
+  for i in "${!BACKUPS[@]}"; do
+    local title=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 2)
+    if [[ ${#title} > ${longest} ]]; then
+      longest=${#title}
+    fi
+  done
 
-	#--------------------------------------------------------
-	# BACKUP RADARR
-	#--------------------------------------------------------
-  if [[ -d ${config_dir}/radarr ]]; then
-		echo -n "saving   radarr    ... "
-		mkdir -p "${backupDir}/radarr"
-		rsync -aq "${config_dir}/radarr/" "${backupDir}/radarr" \
-			--exclude Backups \
-			--exclude logs \
-			--exclude UpdateLogs \
-			--exclude nzbdrone.pid
-		echo ${doneStr}
-	fi
+  longest=$((longest+2))
 
-	#--------------------------------------------------------
-	# BACKUP PLEX
-	#--------------------------------------------------------
-	if [[ -d "${config_dir}/plex/config/Library/Application Support/Plex Media Server" ]]; then
-		echo -n "saving   plex      ... "
-		mkdir -p "${backupDir}/plex"
-		rsync -aq "${config_dir}/plex/config/Library/Application Support/Plex Media Server/" "${backupDir}/plex" \
-			--exclude Cache \
-			--exclude Crash\ Reports \
-			--exclude Logs \
-			--exclude plexmediaserver.pid
-		echo ${doneStr}
-	fi
+  for i in "${!BACKUPS[@]}"; do
+    local type=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 1)
+    local title=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 2)
+    local root=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 3)
 
-  #--------------------------------------------------------
-	# BACKUP OMBI
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/ombi ]]; then
-		echo -n "saving   ombi      ... "
-		mkdir -p "${backupDir}/ombi"
-		cp "${config_dir}/ombi/Ombi.db" "${backupDir}/ombi"
-    cp "${config_dir}/ombi/Schedules.db" "${backupDir}/ombi"
-		echo ${doneStr}
-	fi
+    printf "saving   %-${longest}s ... " ${title}
 
-  #--------------------------------------------------------
-  # BACKUP TAUTULLI
-  #--------------------------------------------------------
-  if [[ -d ${config_dir}/plexstats/config ]]; then
-		echo -n "saving   plexstats ... "
-		mkdir -p "${backupDir}/plexstats"
-    cp "${config_dir}/plexstats/config/config.ini" "${backupDir}/plexstats"
-    cp "${config_dir}/plexstats/config/tautulli.db" "${backupDir}/plexstats"
-		echo ${doneStr}
-	fi
+    mkdir -p "${backupDir}/${root}"
 
-	#--------------------------------------------------------
-	# BACKUP NZBGET
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/nzbget/config ]]; then
-		echo -n "saving   nzbget    ... "
-		mkdir -p "${backupDir}/nzbget"
-		cp "${config_dir}/nzbget/config/nzbget.conf" "${backupDir}/nzbget"
-		echo ${doneStr}
-	fi
+    local oldIFS=${IFS}
+    IFS=','
 
-	#--------------------------------------------------------
-	# BACKUP SONARR
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/sonarr ]]; then
-		echo -n "saving   sonarr    ... "
-		mkdir -p "${backupDir}/sonarr"
-		rsync -aq "${config_dir}/sonarr/" "${backupDir}/sonarr" \
-			--exclude Backups \
-			--exclude logs \
-			--exclude UpdateLogs \
-			--exclude nzbdrone.pid
-		echo ${doneStr}
-	fi
+    if [[ ${type} == 'r' ]]; then
+      local src=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 4)
+      local exclude=($(echo "${BACKUPS[${i}]}" | cut -d '|' -f 5))
+      rsync -aq "${config_dir}/${root}/${src}" "${backupDir}/${root}" "${exclude[@]/#/--exclude=}"
+    else
+      local items=($(echo "${BACKUPS[${i}]}" | cut -d '|' -f 4))
+      for i in "${!items[@]}"; do
+        local src=$(echo "${items[${i}]}" | cut -d ':' -f 1)
+        local dest=$(echo "${items[${i}]}" | cut -d ':' -f 2)
+        mkdir -p "$(dirname "${backupDir}/${root}/${dest}")"
+        cp "${config_dir}/${root}/${src}" "${backupDir}/${root}/${dest}"
+      done
+    fi
+    echo ${doneStr}
+  done
 
-	#--------------------------------------------------------
-	# BACKUP LIDARR
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/lidarr ]]; then
-		echo -n "saving   lidarr    ... "
-		mkdir -p "${backupDir}/lidarr"
-    rsync -aq "${config_dir}/lidarr/" "${backupDir}/lidarr" \
-			--exclude Backups \
-			--exclude logs \
-			--exclude UpdateLogs \
-			--exclude lidarr.pid
-		echo ${doneStr}
-	fi
+  IFS=${oldIFS}
 
-	#--------------------------------------------------------
-	# BACKUP DELUGE
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/deluge ]]; then
-		echo -n "saving   deluge    ... "
-		mkdir -p "${backupDir}/deluge"
-		mkdir -p "${backupDir}/deluge-web"
-		rsync -aq "${config_dir}/deluge/" "${backupDir}/deluge" \
-      --exclude state \
-      --exclude downloads \
-      --exclude deluged.log
-    rsync -aq "${config_dir}/deluge-web/" "${backupDir}/deluge-web" \
-      --exclude deluge-web.log
-		echo ${doneStr}
-	fi
-
-  #--------------------------------------------------------
-	# BACKUP OPENVPN
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/openvpn ]]; then
-		echo -n "saving   openvpn   ... "
-		mkdir -p "${backupDir}/openvpn"
-    cp -R "${config_dir}/openvpn/*" "${backupDir}/openvpn/"
-		echo ${doneStr}
-	fi
-
-  #--------------------------------------------------------
-	# BACKUP PORTAL
-	#--------------------------------------------------------
-	if [[ -d ${config_dir}/portal ]]; then
-		echo -n "saving   portal    ... "
-		mkdir -p "${backupDir}/portal"
-    cp -R "${CONFIG_DIR}/portal/*" "${backupDir}/portal/"
-		echo ${doneStr}
-	fi
-
-	if [[ -d ${backupDir} ]]; then
+  if [[ -d ${backupDir} ]]; then
     cp .env "${backupDir}"
     echo
-		echo -n "creating backup    ... "
+    echo -n "creating backup      ... "
     cd "${backupDir}"
-		tar -czf "${backupFile}" .env * > /dev/null
+    tar -czf "${backupFile}" .env * > /dev/null
     cd - > /dev/null
     echo ${doneStr}
-	fi
+  fi
 
-	echo -n "cleaning up        ... "
-	rm -rf "${backupDir}"
+  echo -n "cleaning up          ... "
+  rm -rf "${backupDir}"
   echo ${doneStr}
   echo
 
-	echo "Staring Nateflix"
-	control_services start
+  echo "Staring Nateflix"
+  control_services start
 
-	echo
+  echo
 
-	return 0
+  return 0
 }
 
 restore()
 {
   declare backup_file="$1"
 
+  # TODO: take destination dir as argument
+  # TODO: add flag for overwriting .env
+
   local config_dir=$(get_var "./.env" "CONFIG_DIR")
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
   WORKING_DIR=$(mktemp -d)
-	local backupDir="${WORKING_DIR}/nateflix"
+  local backupDir="${WORKING_DIR}/nateflix"
 
   mkdir -p "${backupDir}"
   mkdir -p "${config_dir}"
-  tar -zxvf "${backup_file}" -C "${backupDir}" > /dev/null
+  tar -zxf "${backup_file}" -C "${backupDir}" > /dev/null
 
-	echo "Stopping Nateflix"
-	control_services stop
+  echo "Stopping Nateflix"
+  control_services stop
   echo
 
-  cd "${backupDir}"
-  for dir in *; do
-    if [[ -d ${dir} ]]; then
-      printf "restoring %-10s ... " "${dir}"
-      mkdir -p "${config_dir}/${dir}"
-      cp -Rf "${backupDir}/${dir}/*" "${config_dir}/${dir}/"
-      echo ${doneStr}
+  local longest=0
+  for i in "${!BACKUPS[@]}"; do
+    local title=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 2)
+    if [[ ${#title} > ${longest} ]]; then
+      longest=${#title}
     fi
   done
-  cd - > /dev/null
+
+  longest=$((longest+2))
+
+  for i in "${!BACKUPS[@]}"; do
+    local type=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 1)
+    local title=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 2)
+    local root=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 3)
+
+    printf "restore  %-${longest}s ... " ${title}
+
+    mkdir -p "${config_dir}/${root}"
+
+    local oldIFS=${IFS}
+    IFS=','
+
+    if [[ ${type} == 'r' ]]; then
+      local src=$(echo "${BACKUPS[${i}]}" | cut -d '|' -f 4)
+      local exclude=($(echo "${BACKUPS[${i}]}" | cut -d '|' -f 5))
+      mkdir -p "${config_dir}/${root}/${src}"
+      rsync -aq "${backupDir}/${root}/" "${config_dir}/${root}/${src}"
+    else
+      local items=($(echo "${BACKUPS[${i}]}" | cut -d '|' -f 4))
+      for i in "${!items[@]}"; do
+        local src=$(echo "${items[${i}]}" | cut -d ':' -f 1)
+        local dest=$(echo "${items[${i}]}" | cut -d ':' -f 2)
+        mkdir -p "$(dirname "${config_dir}/${root}/${src}")"
+        cp "${backupDir}/${root}/${dest}" "${config_dir}/${root}/${src}"
+      done
+    fi
+    echo ${doneStr}
+  done
+
+  IFS=${oldIFS}
 
   # cp -f .env $SCRIPT_DIR
 
-	echo -n "cleaning up         ... "
-	rm -rf "${backupDir}"
+  echo -n "cleaning up           ... "
+  rm -rf "${backupDir}"
   echo ${doneStr}
   echo
 
-	echo "Staring Nateflix"
-	control_services start
+  echo "Staring Nateflix"
+  control_services start
 
-	echo
+  echo
 
-	return 0
+  return 0
 }
 
 update_service()
