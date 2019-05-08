@@ -35,8 +35,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${CONFIG_DIR}/portal:/etc/traefik:ro
-    env_file:
-      - .env
 
   jackett:
     labels:
@@ -63,8 +61,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}:/config
       - ${CONFIG_DIR}/torrents:/downloads
-    env_file:
-      - .env
 
   hydra:
     labels:
@@ -91,8 +87,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/hydra:/config
       - ${CONFIG_DIR}/torrents:/downloads
-    env_file:
-      - .env
 
   nzbget:
     labels:
@@ -116,8 +110,6 @@ services:
       - ${CONFIG_DIR}/nzbget:/config
       - ${CONFIG_DIR}/downloads/nzbget:/downloads
       - ${MEDIA_ROOT}:/data
-    env_file:
-      - .env
 
   plex:
     labels:
@@ -166,8 +158,6 @@ services:
       - ${CONFIG_DIR}/plex:/config
       - /dev/shm:/transcode
       - ${MEDIA_ROOT}:/data:ro
-    env_file:
-      - .env
 
   plexstats:
     labels:
@@ -190,8 +180,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/plexstats:/config
       - ${CONFIG_DIR}/plex/Library/Application Support/Plex Media Server/Logs:/plex_logs:ro
-    env_file:
-      - .env
 
   ombi:
     labels:
@@ -212,8 +200,6 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/ombi:/config
-    env_file:
-      - .env
 
   sonarr:
     labels:
@@ -237,8 +223,6 @@ services:
       - ${CONFIG_DIR}/sonarr:/config
       - ${CONFIG_DIR}/downloads:/downloads
       - ${MEDIA_ROOT}/shows:/tv
-    env_file:
-      - .env
 
   radarr:
     labels:
@@ -262,8 +246,6 @@ services:
       - ${CONFIG_DIR}/radarr:/config
       - ${CONFIG_DIR}/downloads:/downloads
       - ${MEDIA_ROOT}/movies:/movies
-    env_file:
-      - .env
 
   lidarr:
     labels:
@@ -287,8 +269,6 @@ services:
       - ${CONFIG_DIR}/lidarr:/config
       - ${CONFIG_DIR}/downloads:/downloads
       - ${MEDIA_ROOT}/music:/music
-    env_file:
-      - .env
 
   vpn:
     labels:
@@ -303,17 +283,17 @@ services:
       - /dev/net/tun
     ports:
       - 58846:58846/tcp
-    environment:
-      REGION: ${VPN_REGION}
-      PROTOCOL: udp
-      ENCRYPTION: strong
-      USER: ${VPN_USERNAME}
-      PASSWORD: ${VPN_PASSWORD}
+    # environment:
+    #   # REGION: ${VPN_REGION}
+    #   PROTOCOL: udp
+    #   ENCRYPTION: strong
+    #   # USER: ${VPN_USERNAME}
+    #   # PASSWORD: ${VPN_PASSWORD}
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
-      - .env
+      - ${CONFIG_DIR}/vpn.env
 
   deluge:
     labels:
@@ -345,8 +325,6 @@ services:
       - ${CONFIG_DIR}/downloads/deluge:/downloads
       - ${CONFIG_DIR}/torrents:/blackhole
       - ${MEDIA_ROOT}/incoming:/data
-    env_file:
-      - .env
 
   autoheal:
     labels:
@@ -362,7 +340,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # TODO: BIG problem for volume permissions! need to make my own image
   pihole:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
@@ -383,10 +360,10 @@ services:
     expose:
       - 80
     environment:
-      WEBPASSWORD: ""
-      DNS1: 8.8.8.8
-      DNS2: 8.8.4.4
-      ServerIP: ${ADVERTISE_IP}
+      # WEBPASSWORD: ${WEBPASSWORD}
+      # DNS1: ${DNS1}
+      # DNS2: ${DNS2}
+      # ServerIP: ${ADVERTISE_IP}
       PROXY_LOCATION: pihole
       VIRTUAL_HOST: pihole.${DOMAIN}
       VIRTUAL_PORT: 443
@@ -396,7 +373,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     env_file:
-      - .env
+      - ${CONFIG_DIR}/pihole/pihole.env
 
   watchtower:
     labels:

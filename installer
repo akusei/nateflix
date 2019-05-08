@@ -482,12 +482,25 @@ install()
   echo "Setting DOCKER_GID to ${DOCKER_GID}" >> "${LOG_FILE}"
   echo DOCKER_GID=${DOCKER_GID} >> "${INSTALL_DIR}/${configFile}"
 
+  mkdir -p "${CONFIG_DIR}/vpn"
+  local vpnConfig="${CONFIG_DIR}/vpn/vpn.env"
+
   echo "Setting VPN_REGION to ${VPN_REGION}" >> "${LOG_FILE}"
-  echo VPN_REGION=${VPN_REGION} >> "${INSTALL_DIR}/${configFile}"
+  echo REGION=${VPN_REGION} > "${vpnConfig}"
   echo "Setting VPN_USERNAME to ${VPN_USERNAME}" >> "${LOG_FILE}"
-  echo VPN_USERNAME=${VPN_USERNAME} >> "${INSTALL_DIR}/${configFile}"
+  echo USER=${VPN_USERNAME} >> "${vpnConfig}"
   echo "Setting VPN_PASSWORD to ${VPN_PASSWORD}" >> "${LOG_FILE}"
-  echo VPN_PASSWORD=${VPN_PASSWORD} >> "${INSTALL_DIR}/${configFile}"
+  echo PASSWORD=${VPN_PASSWORD} >> "${vpnConfig}"
+  echo ENCRYPTION=strong >> "${vpnConfig}"
+  echo PROTOCOL=udp >> "${vpnConfig}"
+
+  mkdir -p "${CONFIG_DIR}/pihole"
+  local phConfig="${CONFIG_DIR}/pihole/pihole.env"
+
+  echo WEBPASSWORD=> "${phConfig}"
+  echo DNS1=8.8.8.8 >> "${phConfig}"
+  echo DNS2=8.8.4.4 >> "${phConfig}"
+  echo ServerIP=${ADVERTISE_IP} >> "${phConfig}"
 
   chown -R nateflix:nateflix "${INSTALL_DIR}"
   chown -R nateflix:nateflix "${CONFIG_DIR}"
@@ -886,8 +899,8 @@ create_directories()
 
   log "INFO" "Creating Deluge directories..." 1
   mkdir -p "${CONFIG_DIR}/deluge"
-  mkdir -p "${CONFIG_DIR}/deluge-web"
   mkdir -p "${CONFIG_DIR}/downloads/deluge"
+  mkdir -p "${CONFIG_DIR}/vpn"
 
   log "INFO" "Creating Jackett directories..." 1
   mkdir -p "${CONFIG_DIR}/Jackett"

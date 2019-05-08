@@ -21,6 +21,7 @@ BACKUPS+=("c|sonarr|sonarr|config.xml,nzbdrone.db")
 BACKUPS+=("c|radarr|radarr|config.xml,nzbdrone.db")
 BACKUPS+=("c|lidarr|lidarr|config.xml,lidarr.db")
 BACKUPS+=("r|deluge|deluge||deluged.log,deluged.pid,state,icons,dht.state,session.state,ssl,hostlist.conf.1.2")
+BACKUPS+=("r|vpn|vpn")
 BACKUPS+=("r|pihole|pihole")
 
 readonly COLOR_NORM="$(printf '\033[0m')"
@@ -65,6 +66,9 @@ print_service_status()
 {
   declare services="$@"
 
+  local oldDir="${PWD}"
+  cd "${SCRIPT_DIR}"
+
   if [[ ${#services} == 0 ]]; then
     services="$(docker-compose ps --services)"
     if [[ ${#services} == 0 ]]; then
@@ -88,6 +92,8 @@ print_service_status()
     fi
   done
 
+  cd "${oldDir}"
+
   echo -e ${output} | column -t -s,
 }
 
@@ -95,19 +101,24 @@ control_services()
 {
   declare action="$1" services="${@:2}"
 
+  local oldDir="${PWD}"
+  cd "${SCRIPT_DIR}"
+
   if [[ $action == "restart" ]]; then
     docker-compose stop ${services}
     action="start"
   fi
 
   docker-compose "${action}" ${services}
+
+  cd "${oldDir}"
 }
 
 backup()
 {
   declare backup_dir="$1" backup_file="$2"
 
-  local config_dir=$(get_var "./.env" "CONFIG_DIR")
+  local config_dir=$(get_var "${SCRIPT_DIR}/.env" "CONFIG_DIR")
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
   if [[ ! -d ${config_dir} ]]; then
@@ -207,7 +218,7 @@ restore()
   # TODO: take destination dir as argument
   # TODO: add flag for overwriting .env
 
-  local config_dir=$(get_var "./.env" "CONFIG_DIR")
+  local config_dir=$(get_var "${SCRIPT_DIR}/.env" "CONFIG_DIR")
   local doneStr="${COLOR_GREEN}done${COLOR_NORM}"
 
   WORKING_DIR=$(mktemp -d)
@@ -281,6 +292,9 @@ update_service()
 {
   declare services="$@"
 
+  local oldDir="${PWD}"
+  cd "${SCRIPT_DIR}"
+
   if [[ ${#services} == 0 ]]; then
     services=$(docker-compose ps --services)
   fi
@@ -296,6 +310,8 @@ update_service()
   docker-compose stop ${services}
   docker-compose rm -svf ${services}
   docker-compose up -d ${services}
+
+  cd "${oldDir}"
 }
 
 remove()
@@ -317,6 +333,9 @@ remove()
   esac
 
   local config_dir=$(get_var "./.env" "CONFIG_DIR")
+  local oldDir="${PWD}"
+
+  cd "${SCRIPT_DIR}"
 
   docker-compose down --rmi all -v --remove-orphans
   rm -rf /usr/local/sbin/nateflix > /dev/null
@@ -331,6 +350,8 @@ remove()
     echo "Nateflix has been removed. Configuration data in ${config_dir} was not removed"
   fi
   echo
+
+  cd "${oldDir}"
 }
 
 ctop_command()
@@ -384,12 +405,6 @@ fi
 WORKING_DIR=""
 readonly SCRIPT_DIR="$(readlink -f "$(dirname "$(realpath "$0")")/../")"
 trap "cleanup \"\${WORKING_DIR}\"" EXIT
-
-
-# changing to installation directory is easier since docker-compose
-# works better in the project dir; and I won't have to add --project-directory
-# to every execution of docker-compose
-cd "${SCRIPT_DIR}"
 
 
 case "${1:-}" in
