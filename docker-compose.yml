@@ -293,7 +293,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
-      - ${CONFIG_DIR}/vpn.env
+      - ${CONFIG_DIR}/vpn/vpn.env
 
   deluge:
     labels:
