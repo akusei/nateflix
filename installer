@@ -200,15 +200,14 @@ wait_for_service()
   while [[ ${http_status} != ${status} || ! ${http_content} =~ ${content} ]]; do
     if [[ ${use_password} == "1" ]]; then
       out=$(curl -k --silent -L -w "\n%{http_code}" \
-            --netrc-file <(cat <<<"machine ${hostname}.${DOMAIN} login ${PORTAL_USERNAME} password ${PORTAL_PASSWORD}") \
-            "${url}" || true)
+            --user "${PORTAL_USERNAME}:${PORTAL_PASSWORD}" "${url}" || true)
     else
       out=$(curl -k --silent -L -w "\n%{http_code}" "${url}" || true)
     fi
     http_status="${out##*$'\n'}"
     http_content="${out%$'\n'*}"
     retries=$((${retries}-1))
-    if [[ ${retries} < 0 ]]; then
+    if (( ${retries} < 0 )); then
       echo "Service did not properly start"
       exit 1
     fi
@@ -518,7 +517,7 @@ docker_start()
           content="$4" retries="${5:-20}" dont_stop="${6:-0}"
 
   docker-compose up -d "${service}"
-  wait_for_service "${service}" "${url}" ${status} "${content}" ${retries}
+  wait_for_service "${service}" "${url}" ${status} "${content}" 300
 
   if [[ ${dont_stop} == 0 ]]; then
     docker_stop "${service}"
@@ -839,12 +838,12 @@ configure_jackett()
 
   log "INFO" "Configuring Jackett"
 
-  docker_start "jackett" "/UI/Dashboard" 200 "Jackett" 50
+  docker_start "jackett" "/UI/Dashboard" 302 "" 300
 
-  local config_file="${CONFIG_DIR}/jackett/Jackett/ServerConfig.json"
+  local config_file="${CONFIG_DIR}/Jackett/ServerConfig.json"
   set_json "${config_file}" "AllowExternal" "true"
   set_json "${config_file}" "Port" "9117"
-  set_json "${config_file}" "BlackholeDir" "/torrents"
+  set_json "${config_file}" "BlackholeDir" '"/torrents"'
   set_json "${config_file}" "UpdateDisabled" "true"
   set_json "${config_file}" "UpdatePrerelease" "false"
 
