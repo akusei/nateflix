@@ -350,7 +350,7 @@ gather_required_config()
     echo "Set credentials for web access to system portal"
     while [[ -z ${PORTAL_USERNAME:-} || ${PORTAL_PASSWORD:-"1"} != ${PORTAL_CONFIRM_PASSWORD:-"2"} ]]; do
       read -ep "Portal Username: " PORTAL_USERNAME
-      read -esp "Plex password: " PORTAL_PASSWORD
+      read -esp "Portal password: " PORTAL_PASSWORD
       echo
       read -esp "Confirm password: " PORTAL_CONFIRM_PASSWORD
       echo
@@ -415,6 +415,12 @@ gather_required_config()
   else
     echo "MEDIA_ROOT:   ${MEDIA_ROOT}"
   fi
+
+  if [[ -z ${SOFTWARE_ROOT:-} ]]; then
+    export SOFTWARE_ROOT=$(get_value "Root location of software library" "/mnt/software")
+  else
+    echo "SOFTWARE_ROOT:   ${SOFTWARE_ROOT}"
+  fi
 }
 
 install()
@@ -448,6 +454,7 @@ install()
   mkdir -p "${INSTALL_DIR}"
   mkdir -p "${CONFIG_DIR}"
   mkdir -p "${MEDIA_ROOT}"
+  mkdir -p "${SOFTWARE_ROOT}"
 
   local configFile=.env
 
@@ -466,6 +473,8 @@ install()
   echo CONFIG_DIR=${CONFIG_DIR} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting MEDIA_ROOT to ${MEDIA_ROOT}" >> "${LOG_FILE}"
   echo MEDIA_ROOT=${MEDIA_ROOT} >> "${INSTALL_DIR}/${configFile}"
+  echo "Setting SOFTWARE_ROOT to ${SOFTWARE_ROOT}" >> "${LOG_FILE}"
+  echo SOFTWARE_ROOT=${SOFTWARE_ROOT} >> "${INSTALL_DIR}/${configFile}"
   echo "Setting INSTALL_DIR to ${INSTALL_DIR}" >> "${LOG_FILE}"
   echo INSTALL_DIR=${INSTALL_DIR} >> "${INSTALL_DIR}/${configFile}"
 
@@ -938,14 +947,8 @@ create_directories()
 
 build_and_configure()
 {
-  echo
-  echo
-  echo "**************************"
-  echo "*    BUILDING IMAGES     *"
-  echo "**************************"
-  echo
-
   export PLEX_CLAIM=""
+
   # docker-compose build --no-cache deluge >> "${LOG_FILE}"
   # if [[ $? > 0 ]]; then
   #   echo "Error building images check log file ${LOG_FILE} for details"

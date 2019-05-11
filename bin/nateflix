@@ -332,10 +332,10 @@ remove()
       exit 1;;
   esac
 
+  cd "${SCRIPT_DIR}"
+
   local config_dir=$(get_var "./.env" "CONFIG_DIR")
   local oldDir="${PWD}"
-
-  cd "${SCRIPT_DIR}"
 
   docker-compose down --rmi all -v --remove-orphans
   rm -rf /usr/local/sbin/nateflix > /dev/null
@@ -350,8 +350,6 @@ remove()
     echo "Nateflix has been removed. Configuration data in ${config_dir} was not removed"
   fi
   echo
-
-  cd "${oldDir}"
 }
 
 ctop_command()
@@ -359,14 +357,47 @@ ctop_command()
   if [[ ! -f /usr/local/bin/ctop ]]; then
     echo "ctop is missing"
     local version=$(curl --silent "https://api.github.com/repos/bcicen/ctop/releases/latest" | grep -ioe '"tag_name": "[^"]*' | cut -c 14-)
-    curl --silent -o /usr/local/bin/ctop -L "https://github.com/bcicen/ctop/releases/download/${version}/ctop-${version}-linux-amd64"
+    curl --silent -o /usr/local/bin/ctop -L "https://github.com/bcicen/ctop/releases/download/${version}/ctop-${version#"v"}-linux-amd64"
     chmod a+x /usr/local/bin/ctop
   fi
 
   ctop "$@"
 }
 
-show_help ()
+show_urls()
+{
+  local oldDir="${PWD}"
+  cd "${SCRIPT_DIR}"
+
+  local domain=$(get_var "./.env" "DOMAIN")
+  local names=()
+  names+=("Portal:portal")
+  names+=("NZBGet:newz")
+  names+=("Deluge:torrents")
+  names+=("Plex:watch")
+  names+=("Plex Stats:stats")
+  names+=("OMBI:request")
+  names+=("PiHole:pihole")
+  names+=("Jackett:jackett")
+  names+=("Sonarr:shows")
+  names+=("Radarr:movies")
+  names+=("Lidarr:music")
+  names+=("Hydra:hydra")
+
+  local content=""
+  for service in "${names[@]}"; do
+    local display_name=$(echo "${service}" | cut -d ':' -f 1)
+    local hostname=$(echo "${service}" | cut -d ':' -f 2)
+    content="${content}${display_name},https://${hostname}.${domain}|"
+  done
+
+  echo "${content//|/$'\n'}" | column -s ',' -t
+  echo
+
+  cd "${oldDir}"
+}
+
+show_help()
 {
 	local me="$(basename "$(test -L "$0" && readlink "$0" || echo "$0")")"
 	echo "Utility to manage a Nateflix server. Written by Nathan Martini v1.0"
@@ -378,9 +409,10 @@ show_help ()
 	echo "   restart   Restart all/specific Nateflix services"
 	echo "   stop      Stop all/specific Nateflix services"
 	echo "   status    Display status of all/specific Nateflix services"
-	echo "   upgrade   Upgrade all/specific Nateflix service"
+  echo "   upgrade   Upgrade all/specific Nateflix service"
   echo "   top       show top-like nateflix status"
-	echo "   remove    Uninstall Nateflix"
+  echo "   urls      show all available service URLs"
+  echo "   remove    Uninstall Nateflix"
 	echo "   --help    This help information"
 	echo
 }
@@ -438,6 +470,10 @@ case "${1:-}" in
 
 	"remove")
 		remove "${2:-}"
+    exit 0;;
+
+  "urls")
+    show_urls
     exit 0;;
 
   "top")
