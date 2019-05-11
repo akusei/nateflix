@@ -108,7 +108,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget:/config
-      - ${CONFIG_DIR}/downloads/nzbget:/downloads
+      - ${CONFIG_DIR}/downloads:/downloads
       - ${SOFTWARE_ROOT}/incoming:/data
 
   plex:
@@ -322,7 +322,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/deluge:/config
-      - ${CONFIG_DIR}/downloads/deluge:/downloads
+      - ${CONFIG_DIR}/downloads:/downloads
       - ${CONFIG_DIR}/torrents:/blackhole
       - ${SOFTWARE_ROOT}/incoming:/data
 
