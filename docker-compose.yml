@@ -12,11 +12,11 @@ services:
     container_name: portal
     restart: unless-stopped
     image: traefik:alpine
-    user: ${NATEFLIX_UID}:${DOCKER_GID}
+    # user: ${NATEFLIX_UID}:${DOCKER_GID}
     command:
       - --docker.domain=${DOMAIN}
-      - "--entryPoints=Name:https Address::8443 TLS"
-      - "--entryPoints=Name:http Address::8888 Redirect.EntryPoint:https Redirect.Permanent:true"
+      - "--entryPoints=Name:https Address::443 TLS"
+      - "--entryPoints=Name:http Address::80 Redirect.EntryPoint:https Redirect.Permanent:true"
       - --defaultentrypoints=http,https
       - --api
       - --retry
@@ -28,8 +28,8 @@ services:
       - --docker.exposedbydefault=true
       - --configFile=/etc/traefik/config.toml
     ports:
-      - ${ADVERTISE_IP}:80:8888/tcp
-      - ${ADVERTISE_IP}:443:8443/tcp
+      - ${ADVERTISE_IP}:80:80/tcp
+      - ${ADVERTISE_IP}:443:443/tcp
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -109,7 +109,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/nzbget:/config
       - ${CONFIG_DIR}/downloads/nzbget:/downloads
-      - ${MEDIA_ROOT}:/data
+      - ${SOFTWARE_ROOT}/incoming:/data
 
   plex:
     labels:
@@ -148,7 +148,7 @@ services:
     environment:
       PLEX_CLAIM: ${PLEX_CLAIM:-}
       PLEX_UPDATE_CHANNEL: 8
-      ADVERTISE_IP: https://${ADVERTISE_IP}:32400/
+      ADVERTISE_IP: https://${DOMAIN}:32400/
       PLEX_UID: ${NATEFLIX_UID}
       PLEX_GID: ${NATEFLIX_GID}
       CHANGE_CONFIG_DIR_OWNERSHIP: "false"
@@ -222,7 +222,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/sonarr:/config
       - ${CONFIG_DIR}/downloads:/downloads
-      - ${MEDIA_ROOT}/shows:/tv
+      - ${MEDIA_ROOT}:/tv
 
   radarr:
     labels:
@@ -245,7 +245,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ${CONFIG_DIR}/radarr:/config
       - ${CONFIG_DIR}/downloads:/downloads
-      - ${MEDIA_ROOT}/movies:/movies
+      - ${MEDIA_ROOT}:/movies
 
   lidarr:
     labels:
@@ -324,7 +324,7 @@ services:
       - ${CONFIG_DIR}/deluge:/config
       - ${CONFIG_DIR}/downloads/deluge:/downloads
       - ${CONFIG_DIR}/torrents:/blackhole
-      - ${MEDIA_ROOT}/incoming:/data
+      - ${SOFTWARE_ROOT}/incoming:/data
 
   autoheal:
     labels:
@@ -380,6 +380,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
     image: v2tec/watchtower
     container_name: watchtower
+    restart: unless-stopped
     command: --label-enable --cleanup --schedule "0 0 4 * * *"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
