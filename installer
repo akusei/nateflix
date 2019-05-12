@@ -510,6 +510,9 @@ install()
   echo DNS2=8.8.4.4 >> "${phConfig}"
   echo ServerIP=${ADVERTISE_IP} >> "${phConfig}"
 
+  mkdir -p "${CONFIG_DIR}/portal"
+  touch "${CONFIG_DIR}/portal/portal.env"
+  
   chown -R nateflix:nateflix "${INSTALL_DIR}"
   chown -R nateflix:nateflix "${CONFIG_DIR}"
 }
@@ -553,7 +556,7 @@ configure_lidarr()
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'nzbget','Nzbget','{\"host\":\"nzbget\",\"port\":6789,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"Music\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','NzbgetSettings')"
   sqlite3 "${dbFile}" "insert into DownloadClients (Enable,Name,Implementation,Settings,ConfigContract) values (1,'deluge','Deluge','{\"host\":\"deluge\",\"port\":8112,\"username\":\"\",\"password\":\"\",\"musicCategory\":\"lidarr\",\"recentTvPriority\":0,\"olderTvPriority\":0,\"addPaused\":false,\"useSsl\":false}','DelugeSettings')"
   # sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,OnDownload,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnAlbumDownload) values ('plex',0,1,'{\"host\":\"plex\",\"port\":32400,\"username\":\"${PLEX_USERNAME}\",\"password\":\"${PLEX_PASSWORD}\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1)"
-  sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnReleaseImport,OnHealthIssue,IncludeHealthWarnings,OnDownloadFailure,OnImportFailure,OnTrackRetag) values ('plex',0,'{\"host\":\"plex\",\"port\":32400,\"authToken"":\"\",\"signIn\":\"startOAuth\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1,0,0,0,0,1)"
+  # sqlite3 "${dbFile}" "insert into Notifications (Name,OnGrab,Settings,Implementation,ConfigContract,OnUpgrade,Tags,OnRename,OnReleaseImport,OnHealthIssue,IncludeHealthWarnings,OnDownloadFailure,OnImportFailure,OnTrackRetag) values ('plex',0,'{\"host\":\"plex\",\"port\":32400,\"authToken"":\"\",\"signIn\":\"startOAuth\",\"updateLibrary\":true,\"useSsl\":false,\"isValid\":true}','PlexServer','PlexServerSettings',1,'[]',1,1,0,0,0,0,1)"
 }
 
 configure_plex()

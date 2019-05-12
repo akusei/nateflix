@@ -34,7 +34,9 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${CONFIG_DIR}/portal:/etc/traefik:ro
+      - ${CONFIG_DIR}/portal:/etc/traefik
+    env_file:
+      - ${CONFIG_DIR}/portal/portal.env
 
   jackett:
     labels:
@@ -148,7 +150,7 @@ services:
     environment:
       PLEX_CLAIM: ${PLEX_CLAIM:-}
       PLEX_UPDATE_CHANNEL: 8
-      ADVERTISE_IP: https://${DOMAIN}:32400/
+      ADVERTISE_IP: https://${ADVERTISE_IP}:32400/
       PLEX_UID: ${NATEFLIX_UID}
       PLEX_GID: ${NATEFLIX_GID}
       CHANGE_CONFIG_DIR_OWNERSHIP: "false"
@@ -283,12 +285,6 @@ services:
       - /dev/net/tun
     ports:
       - 58846:58846/tcp
-    # environment:
-    #   # REGION: ${VPN_REGION}
-    #   PROTOCOL: udp
-    #   ENCRYPTION: strong
-    #   # USER: ${VPN_USERNAME}
-    #   # PASSWORD: ${VPN_PASSWORD}
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -360,10 +356,6 @@ services:
     expose:
       - 80
     environment:
-      # WEBPASSWORD: ${WEBPASSWORD}
-      # DNS1: ${DNS1}
-      # DNS2: ${DNS2}
-      # ServerIP: ${ADVERTISE_IP}
       PROXY_LOCATION: pihole
       VIRTUAL_HOST: pihole.${DOMAIN}
       VIRTUAL_PORT: 443

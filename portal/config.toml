@@ -40,9 +40,26 @@ logLevel = "INFO"
 
 # [acme]
 # email = "webmaster@nateflix.io"
-# storage = "cert.json"
+# caServer = "https://acme-staging-v02.api.letsencrypt.org/directory"
+# storage = "/etc/traefik/stage.json"
+# #caServer = "https://acme-v02.api.letsencrypt.org/directory"
+# #storage = "/etc/traefik/cert.json"
 # entryPoint = "https"
-# onHostRule = true
+# [[acme.domains]]
+#   sans = [
+#     "portal.nateflix.io",
+#     "newz.nateflix.io",
+#     "torrents.nateflix.io",
+#     "watch.nateflix.io",
+#     "stats.nateflix.io",
+#     "request.nateflix.io",
+#     "pihole.nateflix.io",
+#     "jackett.nateflix.io",
+#     "shows.nateflix.io",
+#     "movies.nateflix.io",
+#     "music.nateflix.io",
+#     "hydra.nateflix.io"
+#   ]
 #
-# [acme.httpChallenge]
-# entryPoint = "http"
+#   [acme.httpChallenge]
+#   entryPoint = "http"
