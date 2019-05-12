@@ -190,6 +190,10 @@ backup()
 
   if [[ -d ${backupDir} ]]; then
     cp .env "${backupDir}"
+    cp "${SCRIPT_DIR}/docker-compose.yml" "${backupDir}"
+    if [[ -f ${SCRIPT_DIR}/docker-compose.override.yml ]]; then
+      cp "${SCRIPT_DIR}/docker-compose.override.yml" "${backupDir}"
+    fi
     echo
     echo -n "creating backup      ... "
     cd "${backupDir}"
@@ -273,6 +277,9 @@ restore()
 
   IFS=${oldIFS}
 
+  if [[ -f ${backupDir}/docker-compose.override.yml ]]; then
+    cp "${backupDir}/docker-compose.override.yml" "${SCRIPT_DIR}"
+  fi
   # cp -f .env $SCRIPT_DIR
 
   echo -n "cleaning up           ... "

@@ -3,6 +3,7 @@ nateflix.run
 /set_env
 /clear_env
 running
+docker-compose.override.yml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
