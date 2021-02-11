@@ -1,2 +1,1 @@
-TODO: links on portal, links for desktop
-links on desktop version 
+This repo is defunct and no longer used. I'm archiving it in case someone finds something in it useful but I've switched to using ansible for all of this and have a much better media stack at https://github.com/akusei/media_stack
